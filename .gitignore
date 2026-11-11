@@ -20,3 +20,4 @@ node_modules/
 target/
 logs/
 dbt_packages/
+api/Rivus.Api/wwwroot/lib/

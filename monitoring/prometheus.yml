@@ -1,0 +1,27 @@
+# Prometheus asks each service for its numbers every 15 seconds.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: collectors
+    static_configs:
+      - targets: ["collector-coinbase:8000", "collector-kraken:8000", "collector-bitstamp:8000"]
+
+  - job_name: latest
+    static_configs:
+      - targets: ["latest:8000"]
+
+  - job_name: flink
+    static_configs:
+      - targets: ["flink-jobmanager:9249", "flink-taskmanager:9249"]
+
+  # Stream health (gaps, late trades, bar delay, reconciliation) measured in
+  # ClickHouse by the API service, plus the API's own request metrics.
+  - job_name: api
+    static_configs:
+      - targets: ["api:8080"]
+
+  # Consumer lag: how far each reader is behind the end of its Kafka topics.
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]

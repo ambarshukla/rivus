@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>rivus</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>rivus</h1>
+    <p class="sub">Live trades from three exchanges, as price bars, with the stream's own checks.</p>
+    <div class="controls">
+      <label for="pair">Pair</label>
+      <select id="pair"><option>BTC-USD</option><option>ETH-USD</option></select>
+      <span id="connection" class="pill">connecting</span>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <h2>Latest prices</h2>
+      <table id="latest">
+        <thead><tr><th>Venue</th><th class="num">Last</th><th class="num">Bid</th><th class="num">Ask</th>
+          <th class="num">Bid-ask spread</th><th class="num">Last trade</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Price by venue, last hour <span class="muted">(1-minute closing price, USD)</span></h2>
+      <div id="legend" class="legend"></div>
+      <div id="chart" class="chart"></div>
+    </section>
+
+    <section>
+      <h2>Stream health</h2>
+      <table id="health">
+        <thead><tr><th>Venue</th><th class="num">Trades, last minute</th><th class="num">Newest trade</th>
+          <th class="num">Bar delay</th><th class="num">Gaps, last hour</th><th class="num">Trades missed</th>
+          <th class="num">Late trades, last hour</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="two">
+      <div>
+        <h2>Venues compared <span class="muted">(each minute's average traded price)</span></h2>
+        <table id="checks">
+          <thead><tr><th>Minute (UTC)</th><th class="num">Venues</th><th class="num">Lowest</th>
+            <th class="num">Highest</th><th class="num">Apart (bps)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div>
+        <h2>Sequence gaps <span class="muted">(last 24 hours)</span></h2>
+        <table id="gaps">
+          <thead><tr><th>Time (UTC)</th><th>Venue</th><th>Pair</th><th class="num">Trades missed</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>Hourly reconciliation <span class="muted">(stream bars against a batch rebuild)</span></h2>
+      <table id="recon">
+        <thead><tr><th>Hour (UTC)</th><th>Venue</th><th>Pair</th><th class="num">Stream bars</th>
+          <th class="num">Batch bars</th><th class="num">Agree</th><th class="num">Differences</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h3>Differences found</h3>
+      <table id="diffs">
+        <thead><tr><th>Bar (UTC)</th><th>Venue</th><th>Pair</th><th>Field</th><th class="num">Stream</th>
+          <th class="num">Batch</th><th>Reason</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="tip" class="tip" hidden></div>
+  <script src="lib/signalr.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

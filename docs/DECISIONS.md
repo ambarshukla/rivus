@@ -168,3 +168,46 @@ by event time would drop late trades first and report a gap that is not there.
 
 **Why.** A quiet venue's last trade of the minute may be 50 seconds older than a busy one's,
 so closes differ just because the market moved. The average over the minute is steadier.
+
+## 15. The API talks to ClickHouse over plain HTTP
+
+**Chosen.** `ClickHouseStore` posts SQL to ClickHouse's HTTP interface with `HttpClient` and
+reads one JSON object per line. Caller-supplied values go as `param_name=value` and appear in
+the SQL as `{name:Type}`.
+
+**Lost.** A ClickHouse driver package for .NET.
+
+**Why.** The whole exchange is visible in forty lines, there is no dependency to keep up with,
+and server-side parameters rule out SQL injection. The cost is writing the row mapping by
+hand, which here is one naming rule (snake_case to PascalCase).
+
+## 16. Live prices reach the browser through Redis publish/subscribe
+
+**Chosen.** The latest-price writer publishes each change on a Redis channel. The API
+subscribes and forwards every message to all SignalR clients.
+
+**Lost.** The API consuming Kafka directly.
+
+**Why.** Redis already holds the latest state, so the page loads that state with one read and
+then follows the changes from the same place. The API needs no Kafka client, and several API
+instances would all receive the same messages without any coordination.
+
+## 17. Stream health is measured by the API and exposed as Prometheus gauges
+
+**Chosen.** Every 15 seconds the API runs one ClickHouse query (trades per minute, bar delay,
+gaps, late trades, venue spread, reconciliation differences) and publishes the answers as
+`rivus_*` gauges. The same query feeds the "stream health" table on the page.
+
+**Lost.** Pointing Grafana straight at ClickHouse with a plugin.
+
+**Why.** Grafana then needs one data source and no plugin download, and the figures are
+ordinary Prometheus series that alert rules could use later.
+
+## 18. The chart is drawn by hand in SVG
+
+**Chosen.** About sixty lines of JavaScript build the line chart, its labels and hover.
+
+**Lost.** A charting library.
+
+**Why.** The page is plain HTML and JavaScript with a single vendored file (the SignalR
+client). One line chart does not justify a second.

@@ -112,3 +112,34 @@ cluster and no Kafka, and compares with expected output: the captured venue mess
 Bitstamp id jump that must not count as a gap, two minutes, three venues). The expected bars
 and spreads were worked out by hand before the first run and matched. Six unit tests cover
 the Redis writer's merging of trades and quotes.
+
+## Phase 3: show (2026-11-11)
+
+**Built.** An ASP.NET Core 10 service: REST endpoints for latest prices, bars, gaps, late
+trades, the cross-venue check and reconciliation results; a SignalR hub that pushes price
+changes; and a plain HTML and JavaScript page. Prometheus scrapes eight targets (three
+collectors, the latest-price writer, both Flink processes, the API, a Kafka lag exporter) and
+Grafana starts with one provisioned dashboard.
+
+**Expected.** The page shows three venues updating several times a second and a chart in which
+the three lines sit almost on top of each other.
+
+**Observed.** As expected: the venues' 1-minute closes differ by 1 to 4 basis points. SignalR
+connected over WebSocket and relayed about 15 updates a second. All eight Prometheus targets
+were up on the first scrape.
+
+**What went wrong.** The statistics query failed with "unknown identifier `metric`": an
+`ORDER BY` after a chain of `UNION ALL` belongs to the last `SELECT` only, where the column
+had no alias. The unit tests had not caught it because they replace ClickHouse with a stub;
+it showed up within seconds against the real database. The order was not needed and was
+removed.
+
+**Verified by running it.** Every endpoint answered against live data; a malformed pair got a
+400 with a reason. Screenshots of the page and the dashboard were taken with a headless
+browser inside the Docker network and checked by eye. The reconciliation tables exist and are
+empty until phase 4.
+
+**Tests.** 34, run by `dotnet test` in Docker: request checking, the ClickHouse row mapping
+(exact decimals, values sent as parameters and never inside the SQL), the gauge reset rule,
+and the application started in memory with fake stores (every endpoint, bad requests, the
+page and its scripts, the SignalR handshake, a store failure returning 503).

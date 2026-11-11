@@ -26,8 +26,14 @@ replies to subscriptions, status notices.
 **Event time.** When something happened according to its source, as opposed to *processing
 time*, when our system handled it. Bars are built on event time.
 
+**Gauge.** A Prometheus measurement that can go up or down (a delay, a count in the last
+hour), as opposed to a *counter*, which only ever rises.
+
 **Heartbeat.** A message sent on a schedule to show the connection is alive. Silence longer
 than the schedule means the connection is dead even if it looks open.
+
+**Hub (SignalR).** The server-side endpoint browsers connect to; the server sends named
+messages to everyone connected to it.
 
 **Idempotent producer.** A Kafka client setting that lets the broker discard a message it has
 already stored, so a retry after a network error cannot create a duplicate or reorder.
@@ -50,10 +56,19 @@ transformed and inserted into another.
 **Partition.** An ordered log inside a Kafka topic. Order is guaranteed within a partition,
 not across partitions.
 
+**Publish/subscribe.** A sender posts messages to a named channel without knowing who is
+listening; every current listener gets a copy. Nothing is stored.
+
 **ReplacingMergeTree.** A ClickHouse table type in which rows with the same key are
 eventually collapsed into one. `FINAL` in a query forces the collapse at read time.
 
 **Retention.** How long (or how many bytes) Kafka keeps messages before deleting them.
+
+**Scrape.** Prometheus collecting numbers by requesting a service's `/metrics` page on a
+schedule.
+
+**SignalR.** ASP.NET Core's library for pushing messages from server to browser over a
+WebSocket, with fallbacks and automatic reconnection.
 
 **Stale.** A connection that is open but has delivered nothing for longer than expected.
 

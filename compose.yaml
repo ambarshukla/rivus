@@ -193,7 +193,72 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
+  # --------------------------------------------------------------------- show
+  # The only C# in the project: REST API, SignalR live feed and the web page.
+  api:
+    build:
+      context: ./api
+      target: runtime
+    image: rivus-api
+    restart: unless-stopped
+    environment:
+      Rivus__ClickHouseUrl: http://clickhouse:8123
+      Rivus__ClickHouseUser: rivus
+      Rivus__ClickHousePassword: rivus
+      Rivus__Redis: redis:6379
+    ports:
+      - "127.0.0.1:18080:8080"   # the web page
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    restart: unless-stopped
+    command: ["--kafka.server=kafka:9092"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    ports:
+      - "127.0.0.1:19090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    environment:
+      # Local only: anyone on this machine may look, nobody needs to log in.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/rivus.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:13000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
   # -------------------------------------------------------------------- tests
+  api-test:
+    profiles: ["test"]
+    build:
+      context: ./api
+      target: test
+    image: rivus-api-test
+
   latest-test:
     profiles: ["test"]
     build:
@@ -218,3 +283,5 @@ volumes:
   kafka-data:
   flink-state:
   clickhouse-data:
+  prometheus-data:
+  grafana-data:
