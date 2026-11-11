@@ -6,7 +6,8 @@ got it right. *rivus* is Latin for "stream".
 
 > **Independent personal project**, built on personal time and equipment. Not affiliated with
 > or endorsed by any exchange named here. It reads the exchanges' public market-data feeds;
-> fetched data is never committed and nothing derived from it is published. Sources and the
+> fetched data is never committed, and no prices or other market data are published: the
+> screenshots below show only the pipeline's own operation (message rates, lag, job runs). Sources and the
 > status of each venue's terms: [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
 
 ```
@@ -34,6 +35,23 @@ Bitstamp ─┘   (Python)      raw      bars, gaps,   (history)     + SignalR  
 
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together and
 [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for what was predicted, what happened and what broke.
+
+## What it looks like
+
+It runs on one machine and is not hosted anywhere, so here are two of its screens.
+
+**Grafana: collecting and processing.** Messages per second from each venue, how long since
+each venue's last trade, consumer lag, and the delay from the end of a bar's window to the
+bar being stored (about 3.5 seconds).
+
+![Grafana dashboard: collect and process rows](docs/img/grafana.png)
+
+**Airflow: the hourly reconciliation.** Four tasks per run: export the hour's raw trades,
+export the stream's bars, rebuild and compare with dbt, load the result.
+
+![Airflow: the reconcile_hourly DAG with four successful runs](docs/img/airflow.png)
+
+The page with live prices and the chart is not shown, because it displays market data.
 
 ## Run it
 
