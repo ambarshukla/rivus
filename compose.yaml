@@ -1,10 +1,14 @@
 name: rivus
 
+# Images shared by several services are built by one of them only.
+#
+# Rebuilding: use  BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose up -d --build
+# Without that variable every build gets a new image id even when nothing
+# changed, so every container is restarted, and a restarted collector means
+# missed trades. A plain "docker compose up -d" never restarts anything.
 x-collector: &collector
-  build:
-    context: ./collectors
-    target: runtime
   image: rivus-collector
+  pull_policy: never
   restart: unless-stopped
   environment: &collector-env
     KAFKA_BOOTSTRAP: kafka:9092
@@ -12,6 +16,29 @@ x-collector: &collector
   depends_on:
     kafka-init:
       condition: service_completed_successfully
+
+x-flink: &flink
+  image: rivus-flink
+  pull_policy: never
+  restart: unless-stopped
+  environment:
+    FLINK_PROPERTIES: |
+      jobmanager.rpc.address: flink-jobmanager
+      rest.address: flink-jobmanager
+      jobmanager.memory.process.size: 1024m
+      taskmanager.memory.process.size: 2048m
+      taskmanager.numberOfTaskSlots: 4
+      parallelism.default: 1
+      execution.checkpointing.interval: 30s
+      execution.checkpointing.dir: file:///flink-state/checkpoints
+      execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+      execution.checkpointing.num-retained: 2
+      state.backend.type: hashmap
+      metrics.reporters: prom
+      metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+      metrics.reporter.prom.port: 9249
+  volumes:
+    - flink-state:/flink-state
 
 services:
   # ---------------------------------------------------------------- transport
@@ -63,6 +90,10 @@ services:
   # file in collectors/venues/.
   collector-coinbase:
     <<: *collector
+    build:
+      context: ./collectors
+      target: runtime
+    pull_policy: missing
     command: ["venues/coinbase.yaml"]
 
   collector-kraken:
@@ -73,7 +104,109 @@ services:
     <<: *collector
     command: ["venues/bitstamp.yaml"]
 
+  # ------------------------------------------------------------------ process
+  # A Flink session cluster: the job manager coordinates, the task manager does
+  # the work, and flink-submit keeps the two SQL jobs submitted.
+  flink-jobmanager:
+    <<: *flink
+    build:
+      context: ./flink
+    pull_policy: missing
+    command: jobmanager
+    ports:
+      - "127.0.0.1:18081:8081"   # Flink web UI
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/overview > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  flink-taskmanager:
+    <<: *flink
+    command: taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+
+  flink-submit:
+    <<: *flink
+    entrypoint: ["/bin/bash", "/opt/flink/submit.sh"]
+    depends_on:
+      flink-taskmanager:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+
+  # ------------------------------------------------------------------- stores
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    restart: unless-stopped
+    environment:
+      # Local-only credentials: the ports below are bound to 127.0.0.1.
+      CLICKHOUSE_USER: rivus
+      CLICKHOUSE_PASSWORD: rivus
+      CLICKHOUSE_DB: rivus
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    ports:
+      - "127.0.0.1:18123:8123"   # HTTP interface
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user rivus --password rivus -q 'SELECT 1' > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    # Latest prices are rebuilt from the stream within a second: nothing to persist.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  latest:
+    build:
+      context: ./latest
+      target: runtime
+    image: rivus-latest
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      REDIS_HOST: redis
+      METRICS_PORT: "8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
   # -------------------------------------------------------------------- tests
+  latest-test:
+    profiles: ["test"]
+    build:
+      context: ./latest
+      target: test
+    image: rivus-latest-test
+
+  flink-sql-test:
+    profiles: ["test"]
+    image: rivus-flink
+    pull_policy: never
+    entrypoint: ["/bin/bash", "/opt/flink/run-sql-tests.sh"]
+
   collectors-test:
     profiles: ["test"]
     build:
@@ -83,3 +216,5 @@ services:
 
 volumes:
   kafka-data:
+  flink-state:
+  clickhouse-data:

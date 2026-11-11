@@ -4,16 +4,27 @@
 struggling server is not hammered. *Jitter* is a random factor on the wait so that several
 clients do not retry in step.
 
+**Bar.** A summary of the trades in one time window: first price (open), highest, lowest,
+last (close), total quantity (volume). Also called a candle or OHLCV.
+
+**Basis point (bps).** One hundredth of a percent. 10 bps = 0.1%.
+
 **Best bid / best offer (BBO).** The highest price anyone will currently pay and the lowest
 price anyone will currently sell at. Also called top of book.
 
 **Broker.** A Kafka server.
+
+**Checkpoint.** A snapshot Flink takes of a running job: its state and its position in each
+Kafka topic. A job restarted from a checkpoint carries on as if it had never stopped.
 
 **Collector.** A program that holds a connection to a venue and copies what arrives into
 Kafka.
 
 **Control message.** Anything from a venue that is not a trade or a book update: heartbeats,
 replies to subscriptions, status notices.
+
+**Event time.** When something happened according to its source, as opposed to *processing
+time*, when our system handled it. Bars are built on event time.
 
 **Heartbeat.** A message sent on a schedule to show the connection is alive. Silence longer
 than the schedule means the connection is dead even if it looks open.
@@ -23,6 +34,15 @@ already stored, so a retry after a network error cannot create a duplicate or re
 
 **KRaft.** Kafka's built-in way of running its own cluster metadata, replacing ZooKeeper.
 
+**Late event.** A message that arrives after the watermark has passed its event time. Its
+window may already have been emitted without it.
+
+**Maker / taker.** The maker's order was resting in the book; the taker's order arrived and
+matched it. A trade's "side" here is always the taker's.
+
+**Materialized view (ClickHouse).** A trigger: every batch inserted into one table is
+transformed and inserted into another.
+
 **Order book.** The list of all outstanding buy and sell orders for a pair, by price.
 
 **Pair.** Two currencies traded against each other, such as BTC-USD.
@@ -30,15 +50,29 @@ already stored, so a retry after a network error cannot create a duplicate or re
 **Partition.** An ordered log inside a Kafka topic. Order is guaranteed within a partition,
 not across partitions.
 
+**ReplacingMergeTree.** A ClickHouse table type in which rows with the same key are
+eventually collapsed into one. `FINAL` in a query forces the collapse at read time.
+
 **Retention.** How long (or how many bytes) Kafka keeps messages before deleting them.
 
 **Stale.** A connection that is open but has delivered nothing for longer than expected.
+
+**State.** What a streaming job must remember between messages: open windows, trade ids
+already seen, the previous id per pair.
 
 **Topic.** A named stream of messages in Kafka.
 
 **Trade.** One exchange of a quantity at a price between a buyer and a seller. Venues give
 each a trade id; consecutive ids make missing trades detectable.
 
+**Tumbling window.** Fixed, back-to-back time slices (every second, every minute). Each
+event belongs to exactly one.
+
 **Venue.** An exchange: here Coinbase, Kraken or Bitstamp.
+
+**VWAP.** Volume-weighted average price: total value traded divided by total quantity.
+
+**Watermark.** Flink's running claim that "nothing older than this time is still coming".
+A window is emitted when the watermark passes its end.
 
 **WebSocket.** A long-lived two-way connection over which a server can push messages.

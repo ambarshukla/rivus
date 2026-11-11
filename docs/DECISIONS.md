@@ -70,3 +70,101 @@ dropped old protocol versions) and gives idempotent delivery with one setting.
 
 **Why.** After a short disconnect the replay fills the hole. The price is duplicates, which
 the processing step removes by trade id; it must do that anyway.
+
+## 7. Flink writes to Kafka; ClickHouse and Redis read from Kafka
+
+**Chosen.** Every Flink result goes to a Kafka topic. ClickHouse pulls those topics itself
+(Kafka table engine plus a materialized view per topic). A small Python service copies the
+latest trade and quote per venue and pair into Redis.
+
+**Lost.** Flink writing straight into ClickHouse and Redis with connectors.
+
+**Why.** Flink has no maintained SQL sink for Redis. ClickHouse's own Flink connector is
+young, insert-only and published for Flink 2.0, while this project runs 2.2. Kafka in the
+middle needs no connector beyond the standard Kafka one, lets each store be rebuilt by
+re-reading a topic, and gives the web service a live feed of bars for free.
+
+## 8. One normalised trades topic per venue
+
+**Chosen.** `rivus.trades.coinbase`, `rivus.trades.kraken`, `rivus.trades.bitstamp`. The
+processing job reads all three as one table; Flink keeps a watermark per topic and uses the
+lowest.
+
+**Lost.** One `rivus.trades` topic holding all venues. This was built first.
+
+**Why.** It broke on replay. When the normalise job caught up on 20 minutes of backlog it
+read the three raw topics at different speeds and interleaved them in the single output
+topic, far out of time order. The watermark followed whichever venue was furthest ahead and
+most of the other venues' trades were then "late": 10,914 of 11,649 trades were flagged and
+left out of bars. With a topic per venue each stays in its own time order, and the same
+replay flags none.
+
+## 9. Duplicates are removed in the processing job, and normalising keeps no state
+
+**Chosen.** `normalise.sql` is a stateless mapping. `process.sql` starts by keeping the first
+copy of each (venue, pair, trade id).
+
+**Lost.** Removing duplicates in the normalise job, so the topic is already clean.
+
+**Why.** Flink's Kafka sink here is at-least-once: after a restart the job re-sends whatever
+it wrote since its last checkpoint. If the clean-up sat upstream of that sink, those re-sent
+trades would reach the bars as fresh duplicates. Putting the clean-up at the start of the job
+that builds the bars covers every source of duplicates at once: venue replays, collector
+restarts and upstream re-sends.
+
+## 10. Jobs resume from their last checkpoint
+
+**Chosen.** `flink/submit.sh` records each job's id and a hash of its SQL. When a job is
+missing it is resubmitted from its newest checkpoint if the SQL is unchanged, otherwise with
+empty state from its last committed Kafka position.
+
+**Lost.** Always starting with empty state; or one Flink cluster per job (application mode).
+
+**Why.** Without the saved state a restarted job forgets which trades it has seen and where
+its open windows stood. Tested by restarting the cluster under load: with resume, every bar
+still matched the stored trades and no trade was duplicated or flagged late.
+
+## 11. At-least-once delivery, made safe by the tables
+
+**Chosen.** Sinks may deliver a row twice. ClickHouse tables are `ReplacingMergeTree`, keyed
+so that a repeated row replaces itself; bars use the trade count as the version, so a fuller
+bar beats a partial one.
+
+**Lost.** Exactly-once delivery with Kafka transactions.
+
+**Why.** Transactions only release data to readers at each checkpoint, so everything
+downstream would lag by the checkpoint interval (30 seconds). Idempotent tables give the same
+end result with no added delay.
+
+## 12. Watermark 2 seconds behind; a quiet venue stops counting after 2 seconds
+
+**Chosen.** A trade is late if it is more than 2 seconds older than the newest trade from its
+venue. A venue with no trades for 2 seconds no longer holds the watermark back.
+
+**Lost.** A longer allowance (fewer late trades, slower bars) or none.
+
+**Why.** Measured: within a venue, trades arrive at most 0.25 seconds out of step. Two seconds
+is generous. Bitstamp often goes several seconds without a trade; without the idle rule every
+bar would wait for it. Measured result: a 1-second bar is in ClickHouse 3.4 seconds after its
+window ends on average, 4.9 at worst.
+
+## 13. Gaps are detected in arrival order, and not for Bitstamp
+
+**Chosen.** For Coinbase and Kraken, a trade id more than one above the previous id seen for
+that pair is a gap. Trades are compared in the order they arrive.
+
+**Lost.** Comparing in event-time order; including Bitstamp.
+
+**Why.** Coinbase and Kraken number trades consecutively per pair (checked on 5,000 trades:
+every step was 1 except across collector restarts). Bitstamp's ids are shared across all its
+pairs, so they jump constantly. Arrival order is used because ids are issued in order; sorting
+by event time would drop late trades first and report a gap that is not there.
+
+## 14. Venues are compared on the minute's volume-weighted average price
+
+**Chosen.** `venue_checks` compares each venue's 1-minute VWAP.
+
+**Lost.** Comparing closing prices.
+
+**Why.** A quiet venue's last trade of the minute may be 50 seconds older than a busy one's,
+so closes differ just because the market moved. The average over the minute is steadier.

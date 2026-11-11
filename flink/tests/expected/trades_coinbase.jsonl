@@ -1,0 +1,5 @@
+{"venue":"coinbase","pair":"BTC-USD","trade_id":1118724575,"price":73899.85000000,"qty":0.00192516,"side":"buy","event_time":"2026-11-11 12:45:00.89","recv_time":"2026-01-01 00:00:00"}
+{"venue":"coinbase","pair":"BTC-USD","trade_id":1118724576,"price":73899.84000000,"qty":0.00000012,"side":"sell","event_time":"2026-11-11 12:45:01.111","recv_time":"2026-01-01 00:00:00"}
+{"venue":"coinbase","pair":"BTC-USD","trade_id":1118724577,"price":73899.84000000,"qty":0.00000011,"side":"sell","event_time":"2026-11-11 12:45:01.606","recv_time":"2026-01-01 00:00:00"}
+{"venue":"coinbase","pair":"ETH-USD","trade_id":853985268,"price":2052.35000000,"qty":0.10186388,"side":"buy","event_time":"2026-11-11 12:44:55.867","recv_time":"2026-01-01 00:00:00"}
+{"venue":"coinbase","pair":"ETH-USD","trade_id":853985269,"price":2052.33000000,"qty":0.04621624,"side":"buy","event_time":"2026-11-11 12:45:01.249","recv_time":"2026-01-01 00:00:00"}

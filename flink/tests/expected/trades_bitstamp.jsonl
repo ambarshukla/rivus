@@ -1,0 +1,5 @@
+{"venue":"bitstamp","pair":"BTC-USD","trade_id":671545032,"price":73897.96000000,"qty":0.02000000,"side":"buy","event_time":"2026-11-11 12:45:01.716","recv_time":"2026-01-01 00:00:00"}
+{"venue":"bitstamp","pair":"BTC-USD","trade_id":671548299,"price":73910.24000000,"qty":0.00001339,"side":"buy","event_time":"2026-11-11 12:45:14.736","recv_time":"2026-01-01 00:00:00"}
+{"venue":"bitstamp","pair":"BTC-USD","trade_id":671548302,"price":73910.24000000,"qty":0.00431414,"side":"buy","event_time":"2026-11-11 12:45:16.084","recv_time":"2026-01-01 00:00:00"}
+{"venue":"bitstamp","pair":"ETH-USD","trade_id":671545041,"price":2053.07000000,"qty":0.00048200,"side":"buy","event_time":"2026-11-11 12:45:05.328","recv_time":"2026-01-01 00:00:00"}
+{"venue":"bitstamp","pair":"ETH-USD","trade_id":671548301,"price":2052.91000000,"qty":0.01105200,"side":"sell","event_time":"2026-11-11 12:45:15.308","recv_time":"2026-01-01 00:00:00"}
