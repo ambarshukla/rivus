@@ -1,0 +1,23 @@
+# Bitstamp WebSocket API v2.
+# Docs: https://www.bitstamp.net/websocket/v2/
+venue: bitstamp
+url: wss://ws.bitstamp.net
+
+subscribe:
+  - {event: "bts:subscribe", data: {channel: live_trades_btcusd}}
+  - {event: "bts:subscribe", data: {channel: live_trades_ethusd}}
+  # order_book_* sends the top 100 levels of each side every time; the best bid
+  # and offer are the first entries. Bitstamp has no smaller top-of-book channel.
+  - {event: "bts:subscribe", data: {channel: order_book_btcusd}}
+  - {event: "bts:subscribe", data: {channel: order_book_ethusd}}
+
+classify:
+  field: event
+  trades: [trade]
+  book: [data]
+
+# Bitstamp asks clients to reconnect before maintenance with this event.
+reconnect_on: ["bts:request_reconnect"]
+
+# The order book channels send several messages a second.
+stale_after_seconds: 30

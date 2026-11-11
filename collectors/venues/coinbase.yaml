@@ -1,0 +1,21 @@
+# Coinbase Exchange public WebSocket feed.
+# Docs: https://docs.cdp.coinbase.com/exchange/websocket-feed/overview
+venue: coinbase
+url: wss://ws-feed.exchange.coinbase.com
+
+# Frames sent, as written here, straight after connecting.
+subscribe:
+  - type: subscribe
+    product_ids: [BTC-USD, ETH-USD]
+    channels: [matches, ticker, heartbeat]
+
+# Which Kafka topic a message goes to, decided by one field of the message.
+# Anything not listed goes to the control topic.
+classify:
+  field: type
+  trades: [match, last_match]   # last_match = the latest trade, sent once on connect
+  book: [ticker]                # best bid and offer, sent after every trade
+
+# Reconnect when nothing at all has arrived for this long. The heartbeat
+# channel sends one message per product per second, so silence means trouble.
+stale_after_seconds: 15

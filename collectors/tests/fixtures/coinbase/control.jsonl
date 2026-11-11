@@ -1,0 +1,3 @@
+{"type":"subscriptions","channels":[{"name":"heartbeat","product_ids":["BTC-USD","ETH-USD"],"account_ids":null},{"name":"matches","product_ids":["BTC-USD","ETH-USD"],"account_ids":null},{"name":"ticker","product_ids":["BTC-USD","ETH-USD"],"account_ids":null}]}
+{"type":"heartbeat","last_trade_id":853985268,"product_id":"ETH-USD","sequence":104917786224,"time":"2026-11-11T12:45:01.000000Z"}
+{"type":"heartbeat","last_trade_id":1118724575,"product_id":"BTC-USD","sequence":139157987007,"time":"2026-11-11T12:45:01.000000Z"}

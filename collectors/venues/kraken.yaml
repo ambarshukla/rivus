@@ -1,0 +1,21 @@
+# Kraken spot WebSocket API v2.
+# Docs: https://docs.kraken.com/api/docs/websocket-v2/trade
+venue: kraken
+url: wss://ws.kraken.com/v2
+
+subscribe:
+  # snapshot: true replays the last 50 trades on connect, which fills the hole
+  # left by a short disconnect. Duplicates are removed downstream by trade_id.
+  - method: subscribe
+    params: {channel: trade, symbol: [BTC/USD, ETH/USD], snapshot: true}
+  # event_trigger: bbo = one message whenever the best bid or offer changes.
+  - method: subscribe
+    params: {channel: ticker, symbol: [BTC/USD, ETH/USD], event_trigger: bbo, snapshot: true}
+
+classify:
+  field: channel
+  trades: [trade]
+  book: [ticker]
+
+# Kraken sends {"channel":"heartbeat"} every second when nothing else is sent.
+stale_after_seconds: 15

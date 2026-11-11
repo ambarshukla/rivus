@@ -1,0 +1,22 @@
+# session notes and secrets: never tracked
+CLAUDE.md
+.claude/
+.env
+.obsidian/
+
+# fetched data and local state: never committed
+data/
+*.duckdb
+*.duckdb.wal
+
+# build output
+bin/
+obj/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv*/
+node_modules/
+target/
+logs/
+dbt_packages/
