@@ -6,7 +6,8 @@ got it right. *rivus* is Latin for "stream".
 
 > **Independent personal project**, built on personal time and equipment. Not affiliated with
 > or endorsed by any exchange named here. It reads the exchanges' public market-data feeds;
-> fetched data is never committed and nothing derived from it is published. Sources and the
+> fetched data is never committed and no data is served to anyone; the only venue-derived
+> material here is the screenshots below, which show a few moments of it. Sources and the
 > status of each venue's terms: [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
 
 ```
@@ -34,6 +35,31 @@ Bitstamp ─┘   (Python)      raw      bars, gaps,   (history)     + SignalR  
 
 Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it fits together and
 [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for what was predicted, what happened and what broke.
+
+## What it looks like
+
+It runs on one machine and is not hosted anywhere, so here are its screens.
+
+**The page.** Latest prices pushed over SignalR, the last hour of 1-minute bars per venue,
+stream health, the cross-venue check and the sequence gaps. The hourly reconciliation is
+further down the same page.
+
+![The web page: latest prices, chart, stream health, checks](docs/img/page.png)
+
+**Grafana.** One row per stage: messages per second and silence per venue; consumer lag and
+the delay from the end of a bar's window to the bar being stored (about 3.5 seconds); gaps,
+late trades and how far the venues are apart; bars that differ from the batch rebuild.
+
+![Grafana dashboard: collect, process, checks, reconcile](docs/img/grafana.png)
+
+**Flink.** The two streaming SQL jobs, `rivus-normalise` and `rivus-process`.
+
+![Flink dashboard: two running jobs](docs/img/flink.png)
+
+**Airflow: the hourly reconciliation.** Four tasks per run: export the hour's raw trades,
+export the stream's bars, rebuild and compare with dbt, load the result.
+
+![Airflow: the reconcile_hourly DAG with four successful runs](docs/img/airflow.png)
 
 ## Run it
 

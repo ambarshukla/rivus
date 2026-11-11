@@ -3,7 +3,9 @@
 Every external data source, what is taken from it, and the status of its terms.
 
 **No venue's terms have been confirmed as permitting this use.** The project therefore runs
-on one machine only, commits no fetched data, and publishes nothing derived from venue data.
+on one machine only, commits no fetched data, and serves no data to anyone. The only venue-derived material in
+this repository is the screenshots in the README, which show a few moments of prices as an
+illustration.
 
 | Venue | Endpoint | Channels used | Terms | Status |
 |---|---|---|---|---|
