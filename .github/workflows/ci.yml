@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each component is tested the same way as on a developer's machine:
+        # build its test image with Docker Compose and run it.
+        include:
+          - name: collectors (ruff, pytest)
+            build: collectors-test
+            run: collectors-test
+          - name: latest-price writer (ruff, pytest)
+            build: latest-test
+            run: latest-test
+          - name: api (dotnet build, dotnet test)
+            build: api-test
+            run: api-test
+          - name: flink sql (job files against fixtures)
+            build: flink-jobmanager
+            run: flink-sql-test
+          - name: batch (ruff, pytest with dbt, DAG load)
+            build: airflow
+            run: batch-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker compose --profile test build ${{ matrix.build }}
+      - name: Test
+        run: docker compose --profile test run --rm ${{ matrix.run }}
+
+  compose:
+    name: compose file is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose --profile test config --quiet

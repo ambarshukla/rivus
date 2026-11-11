@@ -187,3 +187,15 @@ was run by hand for the day.
 parsing and the maker/taker flip, duplicates, trades outside the hour, a stream that agrees,
 each classification, bars missing on either side; plus dbt's own 19 data tests on every run
 and a check that Airflow can load the DAG file.
+
+## Phase 5: document and harden (2026-11-11)
+
+**Added.** `docs/ARCHITECTURE.md`; a GitHub Actions workflow that builds and runs each
+component's test image exactly as on a developer's machine (collectors, latest-price writer,
+API, Flink SQL, batch) and validates the compose file.
+
+**Test count.** Collectors 30, latest-price writer 6, API 34, Flink SQL 8 output tables
+compared, batch 7 plus dbt's 19 data tests.
+
+**Not yet verified.** The workflow has not run on GitHub: nothing has been pushed. Every
+command it runs was run locally.
