@@ -251,7 +251,50 @@ services:
     depends_on:
       - prometheus
 
+  # ---------------------------------------------------------------- reconcile
+  # Airflow in its single-container "standalone" form (scheduler, API server
+  # and DAG processor together, SQLite for its own records). Enough for one
+  # laptop; a real deployment would run them separately on Postgres.
+  airflow:
+    build:
+      context: ./batch
+    image: rivus-batch
+    restart: unless-stopped
+    command: standalone
+    environment: &batch-env
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/rivus/dags
+      # Local only (port bound to 127.0.0.1): no login.
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+      KAFKA_BOOTSTRAP: kafka:9092
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: rivus
+      CLICKHOUSE_PASSWORD: rivus
+      VENUES: coinbase kraken bitstamp
+    ports:
+      - "127.0.0.1:18082:8080"   # Airflow web UI
+    volumes:
+      - airflow-data:/opt/airflow
+      - batch-data:/data
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
   # -------------------------------------------------------------------- tests
+  batch-test:
+    profiles: ["test"]
+    image: rivus-batch
+    pull_policy: never
+    entrypoint: ["/bin/bash", "-c"]
+    # ruff and pytest (which runs dbt for real) in the batch environment, then
+    # a check that Airflow can load the DAG file.
+    command:
+      - cd /opt/rivus && /home/airflow/batch-venv/bin/ruff check . &&
+        /home/airflow/batch-venv/bin/pytest -q -p no:cacheprovider &&
+        python dags/reconcile.py && echo "DAG file loads"
+
   api-test:
     profiles: ["test"]
     build:
@@ -285,3 +328,5 @@ volumes:
   clickhouse-data:
   prometheus-data:
   grafana-data:
+  airflow-data:
+  batch-data:

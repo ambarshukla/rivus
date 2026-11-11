@@ -211,3 +211,50 @@ ordinary Prometheus series that alert rules could use later.
 
 **Why.** The page is plain HTML and JavaScript with a single vendored file (the SignalR
 client). One line chart does not justify a second.
+
+## 19. The batch starts again from the raw messages
+
+**Chosen.** Each hour the batch reads the raw trade topics straight from Kafka and parses the
+venues' messages itself, in dbt models written separately from the Flink SQL.
+
+**Lost.** Rebuilding bars from the stream's normalised trades (`rivus.trades`).
+
+**Why.** A check that shares the stream's parsing would agree with the stream's mistakes. Two
+independent readings of the same raw bytes that arrive at the same bars are evidence; one
+reading compared with itself is not.
+
+## 20. One DuckDB file per hour
+
+**Chosen.** Each run writes `/data/batch/<hour>/recon.duckdb`, next to the raw and stream
+files it was built from.
+
+**Lost.** One growing DuckDB database with incremental models.
+
+**Why.** An hour is then a self-contained folder that can be rebuilt, inspected or deleted
+without touching any other, and two hours can run at once (DuckDB allows one writer per
+file). The results that matter are copied to ClickHouse.
+
+## 21. Airflow standalone, with the batch code in its own Python environment
+
+**Chosen.** One Airflow 3 container (`airflow standalone`, SQLite). The DAG's tasks run
+`python -m rivus_batch <step>` from a separate virtual environment in the same image.
+
+**Lost.** Airflow's separate services on Postgres; importing dbt into Airflow's own Python.
+
+**Why.** On one laptop the separate services cost memory for no gain. Airflow and dbt pin
+many of the same libraries to different versions, so they are kept apart; it also means every
+step is an ordinary command that runs the same with or without Airflow.
+
+## 22. Differences are classified, and rounding does not count against a bar
+
+**Chosen.** A differing field gets the first reason that fits: rounding (relative difference
+under one millionth), late event, gap, ordering, unexplained. A bar whose only differences are
+rounding counts as agreeing.
+
+**Lost.** Comparing with a tolerance and reporting nothing below it; or counting every
+difference equally.
+
+**Why.** Nearly every bar's average price differs in its last digits: Flink's decimal
+arithmetic keeps six decimal places through the multiplication, DuckDB keeps sixteen. That is
+worth recording and not worth an alarm. Rounding is tested first, because a tiny difference
+is rounding whatever else happened in that minute.

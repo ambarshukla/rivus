@@ -1,0 +1,18 @@
+name: rivus
+version: "1.0.0"
+profile: rivus
+
+model-paths: ["models"]
+test-paths: ["tests"]
+
+# One run handles one hour. The batch passes these in with --vars.
+vars:
+  hour_start: "2026-01-01 00:00:00"   # start of the hour, UTC
+  raw_dir: "/data/batch/none/raw"       # <venue>.jsonl files exported from Kafka
+  stream_dir: "/data/batch/none/stream" # bars.csv, late.csv, gaps.csv exported from ClickHouse
+
+models:
+  rivus:
+    +materialized: table
+    staging:
+      +materialized: view

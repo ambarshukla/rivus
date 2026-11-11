@@ -1,5 +1,8 @@
 # Glossary
 
+**Airflow.** A scheduler for batch work: it runs tasks at set times, in a set order, retries
+failures and keeps a history of every run.
+
 **Backoff.** Waiting longer after each failed attempt (here 1 second doubling to 60) so a
 struggling server is not hammered. *Jitter* is a random factor on the wait so that several
 clients do not retry in step.
@@ -22,6 +25,15 @@ Kafka.
 
 **Control message.** Anything from a venue that is not a trade or a book update: heartbeats,
 replies to subscriptions, status notices.
+
+**DAG.** Directed acyclic graph: Airflow's word for a set of tasks and the order they must
+run in.
+
+**dbt.** A tool that builds tables from SQL `SELECT` statements (models) in dependency order
+and runs tests on the results.
+
+**DuckDB.** A database that runs inside the program using it, with no server, storing
+everything in one file. Good at analysing files of data.
 
 **Event time.** When something happened according to its source, as opposed to *processing
 time*, when our system handled it. Bars are built on event time.
@@ -58,6 +70,9 @@ not across partitions.
 
 **Publish/subscribe.** A sender posts messages to a named channel without knowing who is
 listening; every current listener gets a copy. Nothing is stored.
+
+**Reconciliation.** Computing the same result two independent ways and explaining every
+difference.
 
 **ReplacingMergeTree.** A ClickHouse table type in which rows with the same key are
 eventually collapsed into one. `FINAL` in a query forces the collapse at read time.

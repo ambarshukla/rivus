@@ -130,7 +130,7 @@ public sealed class ClickHouseStore(HttpClient http, RivusSettings settings) : I
             SELECT hour_start, venue, pair, window_start, field, stream_value, batch_value, classification
             FROM rivus.recon_diffs FINAL
             WHERE hour_start >= now() - toIntervalHour({hours:UInt32})
-            ORDER BY window_start DESC, venue, pair, field
+            ORDER BY classification = 'rounding', window_start DESC, venue, pair, field
             LIMIT 500
             """, new() { ["hours"] = hours.ToString() }, ct);
 

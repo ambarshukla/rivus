@@ -30,3 +30,17 @@ CREATE TABLE IF NOT EXISTS rivus.recon_diffs (
 ) ENGINE = ReplacingMergeTree(checked_at)
 PARTITION BY toYYYYMM(hour_start)
 ORDER BY (hour_start, venue, pair, window_start, field);
+
+-- One row per day, venue and pair: the hourly results added up.
+CREATE TABLE IF NOT EXISTS rivus.recon_daily (
+  day         Date,
+  venue       LowCardinality(String),
+  pair        LowCardinality(String),
+  hours       UInt64,
+  stream_bars UInt64,
+  batch_bars  UInt64,
+  matched     UInt64,
+  differences UInt64,
+  checked_at  DateTime64(3, 'UTC')
+) ENGINE = ReplacingMergeTree(checked_at)
+ORDER BY (day, venue, pair);

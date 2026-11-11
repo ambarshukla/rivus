@@ -10,6 +10,8 @@ const latest = new Map(); // "venue|pair" -> row from Redis
 const price = (v) => v == null || v === "" ? "–"
   : Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const whole = (v) => v == null ? "–" : Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 });
+// "14.00000000" -> "14"; text such as "missing" is left alone.
+const plain = (v) => v !== "" && !Number.isNaN(Number(v)) ? String(Number(v)) : v;
 const hhmm = (iso) => new Date(iso).toISOString().slice(11, 16);
 const hhmmss = (iso) => new Date(iso).toISOString().slice(11, 19);
 const colour = (venue) => `var(--${venue})`;
@@ -137,11 +139,13 @@ function renderChart(bars) {
 function renderHealth(stats) {
   const get = (metric, venue) => stats.find((s) => s.metric === metric && s.label === venue)?.value;
   const seconds = (v) => v == null ? "–" : `${v.toFixed(1)} s`;
+  // The local clock can trail a venue's by a fraction of a second: never show a negative age.
+  const age = (v) => v == null ? v : Math.max(v, 0);
   const count = (v, bad) => td(whole(v ?? 0), `num${bad && v > 0 ? " warn" : ""}`);
   fillTable("#health", VENUES, (venue) => [
     td(swatch(venue)),
     td(whole(get("trades_last_minute", venue) ?? 0), "num"),
-    td(seconds(get("last_trade_age_seconds", venue)) + " ago", "num"),
+    td(seconds(age(get("last_trade_age_seconds", venue))) + " ago", "num"),
     td(seconds(get("bar_delay_seconds", venue)), "num"),
     count(get("gaps_last_hour", venue), true),
     count(get("missing_trades_last_hour", venue), true),
@@ -165,9 +169,10 @@ async function refresh() {
       fillTable("#recon", rows.slice(0, 12), (r) => [td(hhmm(r.hourStart)), td(swatch(r.venue)), td(r.pair),
         td(r.streamBars, "num"), td(r.batchBars, "num"), td(r.matched, "num"),
         td(r.differences, `num${r.differences > 0 ? " warn" : ""}`)], "no hour reconciled yet")),
+    // Rounding-only differences (a price average differing in its last digits) are not listed.
     getJson("/api/reconciliation/differences?hours=24").then((rows) =>
-      fillTable("#diffs", rows.slice(0, 20), (r) => [td(hhmm(r.windowStart)), td(swatch(r.venue)), td(r.pair),
-        td(r.field), td(r.streamValue, "num"), td(r.batchValue, "num"), td(r.classification)], "none")),
+      fillTable("#diffs", rows.filter((r) => r.classification !== "rounding").slice(0, 20), (r) => [td(hhmm(r.windowStart)), td(swatch(r.venue)), td(r.pair),
+        td(r.field), td(plain(r.streamValue), "num"), td(plain(r.batchValue), "num"), td(r.classification)], "none")),
   ];
   await Promise.allSettled(jobs); // one failing section must not blank the others
 }

@@ -1,0 +1,8 @@
+rivus:
+  target: batch
+  outputs:
+    batch:
+      type: duckdb
+      # One database file per hour, so runs for different hours never collide.
+      path: "{{ env_var('RIVUS_DUCKDB') }}"
+      threads: 2

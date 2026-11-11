@@ -143,3 +143,47 @@ empty until phase 4.
 (exact decimals, values sent as parameters and never inside the SQL), the gauge reset rule,
 and the application started in memory with fake stores (every endpoint, bad requests, the
 page and its scripts, the SignalR handshake, a store failure returning 503).
+
+## Phase 4: reconcile (2026-11-11)
+
+**Built.** Airflow 3.4 with two DAGs. `reconcile_hourly` runs at ten past each hour for the
+hour just ended: export the raw trade messages from Kafka, export the stream's bars, late
+trades and gaps from ClickHouse, run dbt (1.12, on DuckDB) to rebuild the 1-minute bars and
+compare, and load the comparison into ClickHouse. `reconcile_daily` adds the hours up. The
+web page and the Grafana dashboard show the results.
+
+**Predicted.** Bars agree except (a) the minute that was in flight when the stream job was
+restarted with empty state at about 13:36, and (b) possibly some open or close prices where
+trades share a timestamp.
+
+**Observed.**
+
+| Hour | Stream bars | Batch bars | Agree | Differ |
+|---|---|---|---|---|
+| 12:00 (collection began 12:43) | 94 | 94 | 94 | 0 |
+| 13:00 | 349 | 349 | 343 | 6 |
+
+- (a) was right: the 6 differing bars are the 13:35 minute for each of the six venue and pair
+  combinations. The stream's bar has fewer trades than the batch's (for example 304 against
+  370), which is what losing the first part of the minute looks like. Three were labelled
+  "gap", because Kraken also dropped the connection in that minute, and three "unexplained".
+  Nothing records job restarts, so "unexplained" is the honest label.
+- (b) did not happen: no open or close differed anywhere else.
+- Not predicted: the average price (vwap) differed in almost every bar, by less than one part
+  in a hundred million. Flink's decimal multiplication keeps 6 decimal places here; DuckDB
+  keeps 16. These are classified "rounding" and do not count against a bar (decision 22).
+
+**What went wrong.** The first dbt run failed with a decimal overflow: DuckDB multiplies two
+18-digit decimals in 64 bits. Widening one operand to 20 digits moves it to 128-bit
+arithmetic. The first classification order put "gap" before "rounding", which mislabelled 19
+rounding differences in minutes that also had a gap.
+
+**Verified by running it.** The steps were run by hand for both hours, then Airflow ran the
+DAG by itself twice (once on start-up for the hour it had missed, once on schedule at 14:10),
+both successful, and the scheduled run's results replaced the manual ones. The daily roll-up
+was run by hand for the day.
+
+**Tests.** 7 in the batch image, with dbt running for real against the captured messages:
+parsing and the maker/taker flip, duplicates, trades outside the hour, a stream that agrees,
+each classification, bars missing on either side; plus dbt's own 19 data tests on every run
+and a check that Airflow can load the DAG file.

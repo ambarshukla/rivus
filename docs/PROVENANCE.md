@@ -25,6 +25,6 @@ account or key.
 
 `collectors/tests/fixtures/<venue>/{trades,book,control}.jsonl`: a handful of messages per
 venue (at most five per file) captured from the live feeds on 2026-11-11, used to test that
-each venue's config sorts messages correctly. `flink/tests/fixtures/raw/` holds copies of the
-same files for the SQL tests. Nothing else fetched from a venue is committed;
+each venue's config sorts messages correctly. `flink/tests/fixtures/raw/` and
+`batch/tests/fixtures/` hold copies of the same files for the SQL and dbt tests. Nothing else fetched from a venue is committed;
 `data/` is ignored by git and Kafka's storage is a Docker volume.
