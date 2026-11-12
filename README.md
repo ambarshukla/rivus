@@ -133,6 +133,7 @@ bash scripts/replay.sh
 | `flink/sql/` | `tables.sql` (every topic as a table), `normalise.sql`, `process.sql` |
 | `flink/submit.sh` | keeps the jobs running and resumes them from checkpoints |
 | `clickhouse/init/` | tables fed from Kafka |
+| `clickhouse/config/` | limits on ClickHouse's own logs |
 | `latest/` | the Redis latest-price writer |
 | `api/` | the C# service: REST API, SignalR hub, and the page in `wwwroot/` |
 | `batch/` | the hourly reconciliation: `dags/`, the steps in `rivus_batch/`, the dbt project in `dbt/` |

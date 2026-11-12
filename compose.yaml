@@ -154,6 +154,7 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+      - ./clickhouse/config/system-logs.xml:/etc/clickhouse-server/config.d/system-logs.xml:ro
     depends_on:
       kafka-init:
         condition: service_completed_successfully

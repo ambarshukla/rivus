@@ -250,3 +250,15 @@ stale" was pending, not yet firing: it waits ten minutes.
 **What went wrong.** A count of 1,372,447 missed trades was printed as `1.372447e+06`; the two
 rules that can show large numbers now format them. The tests passed first time, which proves
 little, so two thresholds were changed on a copy of the rules: both changes were caught.
+
+## ClickHouse's own logs (2026-11-12)
+
+**Found** while measuring disk after the first night: the ClickHouse volume held 1.5 GB for
+58 MB of market data. The rest was the server's logs about itself (decision 26).
+
+**Changed.** `clickhouse/config/system-logs.xml`, mounted into the server's `config.d`.
+
+**Verified by running it.** After the restart `query_log` and `part_log` carry a seven-day
+expiry (read back from `system.tables`), the text log's newest row is from before the restart,
+and the stream's bars continued within a minute. The old log tables were dropped by hand on
+this machine; a fresh volume never creates them.

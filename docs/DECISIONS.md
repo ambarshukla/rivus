@@ -312,3 +312,18 @@ reconciliation is between 1 h 10 min and 2 h 10 min old, so three hours is stale
 lag sits in the hundreds, so twenty thousand is behind.
 
 An alert cannot report that the whole machine is off: Prometheus is off too.
+
+## 26. ClickHouse's own logs are cut back
+
+**Chosen.** A settings file (`clickhouse/config/system-logs.xml`) sets the server's log level
+to "information", keeps `query_log` and `part_log` for seven days, and switches off the other
+self-logging tables (text, trace, metric, asynchronous metric, processors profile, query
+views, OpenTelemetry spans).
+
+**Lost.** Leaving the defaults; or keeping every table with a short expiry.
+
+**Why.** After thirteen hours the market data took 58 MB and ClickHouse's logs about itself
+took 580 MB in tables and 138 MB in files, none of it ever expiring. The Kafka tables poll
+every second and each poll is logged at trace level. The two tables kept are the ones that
+answer real questions (which query was slow; what was written and merged); the metric tables
+duplicate what Prometheus already collects.
