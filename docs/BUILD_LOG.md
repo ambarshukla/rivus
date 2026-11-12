@@ -199,3 +199,39 @@ compared, batch 7 plus dbt's 19 data tests.
 
 **Not yet verified.** The workflow has not run on GitHub: nothing has been pushed. Every
 command it runs was run locally.
+
+## After a night of running: restarts (2026-11-12)
+
+**What happened.** The stack ran unattended for twelve hours, then the machine installed
+updates and restarted at 01:29 UTC. Docker was not set to start by itself, so nothing ran
+until 22:07 UTC. Every container then came back without help and both Flink jobs resumed from
+their last checkpoints, 20 hours old.
+
+**Checked.**
+
+- Thirteen hourly reconciliations before the outage: every bar agreed except the six already
+  known from the 13:35 restart. 4,328 rounding differences, nothing else.
+- The interrupted hour (01:00): the batch ran 13 seconds after start-up, before the stream had
+  resumed, and reported the 01:29 bar missing for all six venue and pair combinations. Run
+  again a minute later: 177 of 177 bars agree. The resumed job emitted the 01:29 bar from
+  state saved before the outage plus nothing else, and it equals the batch's.
+- The daily roll-up ran on schedule at 00:30 UTC.
+- Late trades overnight: 116, in two bursts of a few seconds (messages received up to 7.8 s
+  after their trade time). All missed their 1-second bar; none missed a 1-minute bar, so the
+  reconciliation was unaffected.
+- Disk after twelve hours: ClickHouse 54 MB.
+
+**Predicted before the change.** With job starts recorded, the six bars of 13:35 on the 11th
+would move from "gap" and "unexplained" to "restart", and nothing else would change.
+**Result.** As predicted: 25 differing fields in 6 bars, all "restart"; 343 of 349 agree as
+before.
+
+**Added.** `job_starts` in ClickHouse, written by `flink/submit.sh`; the "restart"
+classification (decision 23); the batch waits for the stream to pass the hour (decision 24).
+The four job starts before this change were entered by hand from the submit log and the
+checkpoint files' times. The first start recorded by the script itself was the restart that
+deployed it: both jobs resumed, 55 and 84 seconds after their last checkpoints.
+
+**Tests.** Batch 10 (was 7): a restart explains differences in its minutes and not later
+ones, and beats a gap in the same minute; the wait returns when the stream has passed the
+hour and gives up when it does not. dbt's data tests unchanged at 19.

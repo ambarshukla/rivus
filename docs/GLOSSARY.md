@@ -74,6 +74,9 @@ listening; every current listener gets a copy. Nothing is stored.
 **Reconciliation.** Computing the same result two independent ways and explaining every
 difference.
 
+**Restart (classification).** The reason given to a differing bar whose minute falls while a
+stream job was out of action: between its last checkpoint and the start of its replacement.
+
 **ReplacingMergeTree.** A ClickHouse table type in which rows with the same key are
 eventually collapsed into one. `FINAL` in a query forces the collapse at read time.
 

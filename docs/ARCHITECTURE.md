@@ -65,6 +65,7 @@ of receipt.
 | `late_trades`, `gaps` | venue, pair, trade_id | 90 days |
 | `venue_checks` | pair, window_start | 90 days |
 | `recon_runs`, `recon_diffs`, `recon_daily` | hour or day, venue, pair (, bar, field) | not expired |
+| `job_starts` | job, started_at | 90 days |
 
 All but `quotes` are `ReplacingMergeTree`: a row delivered twice replaces itself. Queries that
 must not see a duplicate before the background merge use `FINAL`.
@@ -96,7 +97,7 @@ must not see a duplicate before the background merge use `FINAL`.
 | Venue drops the connection, or goes silent | trades missed while disconnected | collector reconnects with backoff; Kraken replays its last 50 trades; a gap row records what was missed |
 | Collector restarts | same as a dropped connection | same |
 | Flink cluster restarts | results pause | jobs resume from their last checkpoint; verified to leave bars, duplicates and late counts unchanged |
-| Flink SQL is changed | the job starts with empty state from its last committed position | the minute in flight is wrong; the reconciliation reports it |
+| Flink SQL is changed | the job starts with empty state from its last committed position | the minute in flight is wrong; the reconciliation reports it, labelled "restart" |
 | ClickHouse or the API is down | nothing is lost; Kafka holds the data | ClickHouse catches up from its saved positions |
 | Redis restarts | latest prices empty for about a second | refilled by the next trade and quote |
 | Kafka is down | collectors buffer briefly in memory, then lose data | restart; gaps record the loss |

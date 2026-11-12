@@ -258,3 +258,38 @@ difference equally.
 arithmetic keeps six decimal places through the multiplication, DuckDB keeps sixteen. That is
 worth recording and not worth an alarm. Rounding is tested first, because a tiny difference
 is rounding whatever else happened in that minute.
+
+## 23. Job starts are recorded, and explain differences as "restart"
+
+**Chosen.** The script that keeps the Flink jobs submitted writes one row per start to
+ClickHouse (`job_starts`): when the job started, whether it resumed from a checkpoint, and
+when the job before it last saved a checkpoint. The reconciliation labels a differing bar
+"restart" if its minute lies between that last checkpoint (less one minute) and the start.
+The order of reasons is now rounding, restart, late event, gap, ordering, unexplained.
+
+**Lost.** A Kafka topic for job starts, read by ClickHouse like every other table: it would
+match the rest of the design, but needs a Kafka client in the Flink image for about one
+message a week. Asking Flink's REST API for job history: a session cluster forgets its jobs
+when the job manager restarts, which is exactly when the answer is needed. Putting "restart"
+after "gap": a job that starts with empty state has forgotten the last trade id it saw and
+its open windows, so gaps and late trades in that minute are symptoms of the restart.
+
+**Why.** The first restart with changed SQL produced six differing bars, half labelled "gap"
+and half "unexplained", although the cause was known. "Unexplained" should mean that nobody
+knows. The last checkpoint is used as the start of the outage because nothing records the
+moment a job dies; with a checkpoint every 30 seconds it is at most that far off. The starts
+are written to a file first and handed to ClickHouse when it answers, so a job is never held
+up by the record of it.
+
+## 24. The batch waits for the stream to pass the hour
+
+**Chosen.** Before exporting the stream's bars, the batch waits (up to five minutes) until the
+stream has produced a bar later than the hour being checked. If none comes it compares anyway.
+
+**Lost.** Failing the task and letting Airflow retry: a venue outage would then look like a
+broken batch. Not waiting: correct on a normal day, wrong after an outage.
+
+**Why.** A minute's bar is only emitted once a later trade has been seen. After the machine
+had been off overnight, Airflow started faster than Flink and checked the interrupted hour
+before the stream had emitted its last minute: six bars were reported missing that appeared
+seconds later.

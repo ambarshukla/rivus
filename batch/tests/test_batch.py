@@ -35,7 +35,7 @@ def hour(tmp_path, monkeypatch):
     return hour
 
 
-def write_stream(hour, bars, late=(), gaps=()):
+def write_stream(hour, bars, late=(), gaps=(), restarts=()):
     def write(name, header, rows):
         with open(hour.stream_dir / name, "w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, quoting=csv.QUOTE_NONNUMERIC)
@@ -45,6 +45,7 @@ def write_stream(hour, bars, late=(), gaps=()):
     write("bars.csv", BAR_COLUMNS, bars)
     write("late.csv", ["venue", "pair", "trade_id", "event_time"], late)
     write("gaps.csv", ["venue", "pair", "prev_trade_id", "trade_id", "missing", "event_time"], gaps)
+    write("restarts.csv", ["job", "started_at", "down_since", "resumed"], restarts)
 
 
 def query(hour, sql):
@@ -168,3 +169,47 @@ def test_gaps_and_missing_bars(hour):
     assert ("kraken", dropped[1], "bar", "missing", "present", "unexplained") in rows
     assert ("bitstamp", "XRP-USD", "bar", "present", "missing", "unexplained") in rows
     assert [row[5] for row in rows if row[0] == "coinbase" and row[2] == "trades"] == ["gap"]
+
+
+def test_differences_while_a_job_was_restarting_are_labelled_restart(hour):
+    steps.run_dbt(hour)
+    bars = batch_bars(hour)
+    minutes = sorted({bar[2] for bar in bars})
+    assert len(minutes) >= 3
+    trades = BAR_COLUMNS.index("trades")
+    # The stream lost trades in the first minute and has no bar at all for the second.
+    stream = [bar for bar in bars if bar[2] != minutes[1]]
+    for bar in stream:
+        if bar[2] in (minutes[0], minutes[-1]):
+            bar[trades] = "999"
+    # A job's last checkpoint was 20 seconds into the second minute; it was started again
+    # 50 seconds into the same minute. The first minute counts too: its bar was not out yet.
+    restart = [["process", f"{minutes[1][:17]}50.000", f"{minutes[1][:17]}20.000", "false"]]
+    # A gap in the first minute as well: the restart is the better explanation.
+    first = next(bar for bar in stream if bar[2] == minutes[0])
+    write_stream(hour, stream, gaps=[[first[0], first[1], 1, 5, 3, first[2]]], restarts=restart)
+
+    steps.run_dbt(hour)
+
+    found = query(hour, "select strftime(window_start, '%Y-%m-%d %H:%M:%S'), classification from recon_diffs")
+    reasons = {minute: {reason for at, reason in found if at == minute} - {"rounding"} for minute in minutes}
+    assert reasons[minutes[0]] == {"restart"}
+    assert reasons[minutes[1]] == {"restart"}
+    assert reasons[minutes[-1]] == {"unexplained"}  # after the job was back: no excuse
+
+
+def test_export_waits_for_the_stream_to_pass_the_hour(monkeypatch):
+    answers = iter([b"0\n", b"0\n", b"1\n"])
+    asked = []
+    monkeypatch.setattr(steps, "clickhouse", lambda sql, **params: asked.append(params) or next(answers))
+    monkeypatch.setattr(steps.time, "sleep", lambda seconds: None)
+
+    assert steps.wait_for_stream(Hour.parse(HOUR), timeout=60, poll=1) is True
+    assert asked == [{"end": "2026-11-11 13:00:00"}] * 3
+
+
+def test_export_gives_up_waiting_for_a_stream_that_is_not_coming(monkeypatch, capsys):
+    monkeypatch.setattr(steps, "clickhouse", lambda sql, **params: b"0\n")
+
+    assert steps.wait_for_stream(Hour.parse(HOUR), timeout=0, poll=0) is False
+    assert "comparing anyway" in capsys.readouterr().out

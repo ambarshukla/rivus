@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 
 from .common import DBT_DIR, VENUES, Hour, clickhouse
@@ -85,13 +86,45 @@ STREAM_EXPORTS = {
         FROM rivus.gaps FINAL
         WHERE event_time >= {start:DateTime} AND event_time < {end:DateTime}
         ORDER BY venue, pair, trade_id""",
+    # Starts of the stream jobs whose time out of action touches the hour.
+    "restarts.csv": """
+        SELECT job, started_at, down_since, resumed
+        FROM rivus.job_starts FINAL
+        WHERE started_at >= {start:DateTime} - INTERVAL 1 MINUTE
+          AND down_since < {end:DateTime} + INTERVAL 1 MINUTE
+        ORDER BY started_at, job""",
 }
+
+# The stream emits a minute's bar only once it has seen a later trade. After
+# an outage the batch can run before the stream has caught up, and would then
+# report the hour's last bars as missing.
+STREAM_WAIT_SECONDS = 300
+STREAM_POLL_SECONDS = 10
+
+
+def wait_for_stream(hour: Hour, timeout: float = STREAM_WAIT_SECONDS, poll: float = STREAM_POLL_SECONDS) -> bool:
+    """Wait until the stream has produced a bar later than the hour.
+
+    Gives up after `timeout` seconds and returns False: the comparison then
+    goes ahead and reports what is missing, which is right for a dead stream.
+    """
+    end = hour.end.strftime("%Y-%m-%d %H:%M:%S")
+    deadline = time.monotonic() + timeout
+    while True:
+        passed = clickhouse("SELECT max(window_start) >= {end:DateTime} FROM rivus.bars_1m", end=end)
+        if passed.strip() == b"1":
+            return True
+        if time.monotonic() >= deadline:
+            print(f"the stream has no bar after {end} yet; comparing anyway")
+            return False
+        time.sleep(poll)
 
 
 def export_stream(hour: Hour) -> None:
     """Copy what the stream produced for the hour from ClickHouse to CSV files."""
     hour.stream_dir.mkdir(parents=True, exist_ok=True)
     end = hour.end.strftime("%Y-%m-%d %H:%M:%S")
+    wait_for_stream(hour)
     for name, sql in STREAM_EXPORTS.items():
         body = clickhouse(sql + "\nFORMAT CSVWithNames", start=hour.sql, end=end)
         (hour.stream_dir / name).write_bytes(body)
