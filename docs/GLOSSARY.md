@@ -1,5 +1,9 @@
 # Glossary
 
+**Alert rule.** A query Prometheus runs on a schedule that should return nothing. While it
+returns something the alert is *pending*; once that has lasted for the rule's `for` time it
+is *firing*.
+
 **Airflow.** A scheduler for batch work: it runs tasks at set times, in a set order, retries
 failures and keeps a history of every run.
 

@@ -36,7 +36,7 @@ comparison.
 | `latest` | newest trade and quote per venue and pair into Redis | none (Redis is rebuilt in a second) |
 | `api` | REST, SignalR, the page; measures stream health for Prometheus | none |
 | Airflow | runs the hourly and daily reconciliation | run history; one folder per hour |
-| Prometheus, Grafana | metrics and the dashboard | 15 days of metrics |
+| Prometheus, Grafana | metrics, alert rules and the dashboard | 15 days of metrics |
 
 ## Topics
 

@@ -293,3 +293,22 @@ broken batch. Not waiting: correct on a normal day, wrong after an outage.
 had been off overnight, Airflow started faster than Flink and checked the interrupted hour
 before the stream had emitted its last minute: six bars were reported missing that appeared
 seconds later.
+
+## 25. Alert rules in Prometheus, shown and not sent
+
+**Chosen.** Twelve rules in `monitoring/alerts.yml`, evaluated by Prometheus, visible on its
+`/alerts` page and as a panel on the Grafana dashboard. Each is tested with `promtool` against
+made-up metric values, in CI.
+
+**Lost.** Alertmanager with e-mail or chat delivery: it needs a destination and a secret, and
+on one laptop the person to be told is the person at the keyboard. Grafana-managed alerts:
+they live in Grafana's database or more provisioning files, and cannot be unit-tested the way
+rule files can.
+
+**Why.** The gauges existed but somebody had to look at them. After the stack was found to
+have been off for twenty hours, "what is wrong right now" should be one glance. Rules as a
+file are reviewed and tested like code. Thresholds come from what was measured: a healthy
+reconciliation is between 1 h 10 min and 2 h 10 min old, so three hours is stale; consumer
+lag sits in the hundreds, so twenty thousand is behind.
+
+An alert cannot report that the whole machine is off: Prometheus is off too.

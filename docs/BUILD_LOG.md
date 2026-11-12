@@ -235,3 +235,18 @@ deployed it: both jobs resumed, 55 and 84 seconds after their last checkpoints.
 **Tests.** Batch 10 (was 7): a restart explains differences in its minutes and not later
 ones, and beats a gap in the same minute; the wait returns when the stream has passed the
 hour and gives up when it does not. dbt's data tests unchanged at 19.
+
+## Alert rules (2026-11-12)
+
+**Added.** `monitoring/alerts.yml` with twelve rules (decision 25); `monitoring/alerts_test.yml`
+and the `alerts-test` service that runs it with `promtool`; a CI job for it; an "Alerts
+firing" panel on the dashboard.
+
+**Predicted.** Loaded into the running stack an hour after the outage ended: "trades missed"
+firing for Coinbase and Kraken (the ids jumped across the twenty hours), "reconciliation
+stale" for all three venues, everything else quiet. **Result.** As predicted. "Reconciliation
+stale" was pending, not yet firing: it waits ten minutes.
+
+**What went wrong.** A count of 1,372,447 missed trades was printed as `1.372447e+06`; the two
+rules that can show large numbers now format them. The tests passed first time, which proves
+little, so two thresholds were changed on a copy of the rules: both changes were caught.

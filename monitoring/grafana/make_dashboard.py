@@ -57,6 +57,12 @@ ROWS = [
          [("rivus_trades_last_minute", "{{venue}}")],
          "Normalised trades reaching ClickHouse."),
     ]),
+    ("Alerts", [
+        ("Alerts firing", "short",
+         [('count by (alertname, severity) (ALERTS{alertstate="firing"})', "{{alertname}} ({{severity}})")],
+         "Rules in monitoring/alerts.yml that are true now. Empty is good. Details at "
+         "Prometheus, /alerts."),
+    ]),
 ]
 
 

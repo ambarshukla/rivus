@@ -1,0 +1,209 @@
+# Unit tests for alerts.yml, run by promtool: made-up metric values go in,
+# and the alerts expected at a given minute are listed.
+#
+#   docker compose --profile test run --rm alerts-test
+#
+# In a series, 'a+bxn' means: start at a, add b each interval, n more times.
+# '_' is a missing sample.
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ------------------------------------------------------------ all is well
+  - name: a healthy stack raises nothing
+    interval: 1m
+    input_series:
+      - series: 'up{job="api", instance="api:8080"}'
+        values: '1x30'
+      - series: 'rivus_collector_connected{venue="kraken"}'
+        values: '1x30'
+      - series: 'rivus_collector_last_message_timestamp_seconds{venue="kraken", kind="trades"}'
+        values: '0+60x30'          # a message every minute
+      - series: 'flink_jobmanager_numRunningJobs'
+        values: '2x30'
+      - series: 'flink_jobmanager_job_numRestarts{job_name="rivus-process"}'
+        values: '0x30'
+      - series: 'flink_jobmanager_job_numberOfCompletedCheckpoints{job_name="rivus-process"}'
+        values: '0+2x30'           # two checkpoints a minute
+      - series: 'rivus_last_bar_age_seconds{venue="kraken"}'
+        values: '4x30'
+      - series: 'kafka_consumergroup_lag{consumergroup="rivus-process", topic="rivus.trades.kraken"}'
+        values: '300x30'
+      - series: 'rivus_stats_up'
+        values: '1x30'
+      - series: 'rivus_missing_trades_last_hour{venue="kraken"}'
+        values: '0x30'
+      - series: 'rivus_recon_differences_last_day{venue="kraken"}'
+        values: '0x30'
+      - series: 'rivus_recon_last_hour_age_seconds{venue="kraken"}'
+        values: '4200+60x30'       # 1 h 10 min, growing
+    alert_rule_test:
+      - {eval_time: 30m, alertname: TargetDown}
+      - {eval_time: 30m, alertname: CollectorDisconnected}
+      - {eval_time: 30m, alertname: VenueQuiet}
+      - {eval_time: 30m, alertname: StreamJobMissing}
+      - {eval_time: 30m, alertname: StreamJobRestarting}
+      - {eval_time: 30m, alertname: CheckpointsStopped}
+      - {eval_time: 30m, alertname: NoNewBars}
+      - {eval_time: 30m, alertname: ConsumerLagging}
+      - {eval_time: 30m, alertname: HealthQueryFailing}
+      - {eval_time: 30m, alertname: TradesMissed}
+      - {eval_time: 30m, alertname: ReconciliationDifferences}
+      - {eval_time: 30m, alertname: ReconciliationStale}
+
+  # ---------------------------------------------------------------- collect
+  - name: a collector that loses its venue, then goes quiet
+    interval: 1m
+    input_series:
+      - series: 'up{job="collectors", instance="collector-kraken:8000"}'
+        values: '1x5 0x10'
+      - series: 'rivus_collector_connected{venue="coinbase"}'
+        values: '1x5 0x10'
+      # Last message at t=300 s and nothing after.
+      - series: 'rivus_collector_last_message_timestamp_seconds{venue="bitstamp", kind="trades"}'
+        values: '0+60x5 300x30'
+      # Book messages do not count as trades being heard.
+      - series: 'rivus_collector_last_message_timestamp_seconds{venue="bitstamp", kind="book"}'
+        values: '0x35'
+    alert_rule_test:
+      - eval_time: 7m              # down for one minute: still pending
+        alertname: TargetDown
+      - eval_time: 9m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels: {severity: critical, job: collectors, instance: "collector-kraken:8000"}
+            exp_annotations: {summary: "collector-kraken:8000 does not answer Prometheus"}
+      - eval_time: 9m
+        alertname: CollectorDisconnected
+        exp_alerts:
+          - exp_labels: {severity: critical, venue: coinbase}
+            exp_annotations:
+              summary: "The coinbase collector has no connection to the venue"
+              description: "It reconnects by itself with a growing wait. Every minute here is missed trades."
+      - eval_time: 19m             # 14 minutes of silence
+        alertname: VenueQuiet
+      - eval_time: 22m             # 17 minutes
+        alertname: VenueQuiet
+        exp_alerts:
+          - exp_labels: {severity: warning, venue: bitstamp, kind: trades}
+            exp_annotations:
+              summary: "No trade message from bitstamp for 15 minutes"
+              description: "Connected but silent: a quiet market, or a subscription the venue dropped."
+
+  # ---------------------------------------------------------------- process
+  - name: a stream job that is gone, restarts, or stops checkpointing
+    interval: 1m
+    input_series:
+      - series: 'flink_jobmanager_numRunningJobs'
+        values: '2x5 1x10'
+      - series: 'flink_jobmanager_job_numRestarts{job_name="rivus-normalise"}'
+        values: '0x5 1x30'
+      - series: 'flink_jobmanager_job_numberOfCompletedCheckpoints{job_name="rivus-process"}'
+        values: '0+2x5 10x30'      # stops at minute 5
+      - series: 'rivus_last_bar_age_seconds{venue="kraken"}'
+        values: '4x5 60+60x30'
+      # One quiet venue is not a stopped stream as long as another has bars.
+      - series: 'rivus_last_bar_age_seconds{venue="bitstamp"}'
+        values: '500x35'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: StreamJobMissing
+      - eval_time: 10m
+        alertname: StreamJobMissing
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "1 of 2 Flink jobs running"
+              description: "flink-submit resubmits missing jobs every 30 seconds; three minutes means it cannot."
+      - eval_time: 10m
+        alertname: StreamJobRestarting
+        exp_alerts:
+          - exp_labels: {severity: warning, job_name: rivus-normalise}
+            exp_annotations: {summary: "Flink restarted rivus-normalise by itself in the last 15 minutes"}
+      - eval_time: 30m             # long past: quiet again
+        alertname: StreamJobRestarting
+      - eval_time: 12m             # no checkpoint for 7 minutes: pending
+        alertname: CheckpointsStopped
+      - eval_time: 16m
+        alertname: CheckpointsStopped
+        exp_alerts:
+          - exp_labels: {severity: warning, job_name: rivus-process}
+            exp_annotations:
+              summary: "rivus-process has not completed a checkpoint for 10 minutes"
+              description: "A restart now would lose or replay that much work."
+      - eval_time: 5m
+        alertname: NoNewBars
+      - eval_time: 12m
+        alertname: NoNewBars
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No venue has had a new 1-second bar stored for 7m 0s"
+              description: "Trades may still be arriving: look at consumer lag to see where they stop."
+
+  - name: a reader that falls behind, and a health query that fails
+    interval: 1m
+    input_series:
+      # Two topics of one group are added together.
+      - series: 'kafka_consumergroup_lag{consumergroup="rivus-process", topic="rivus.trades.kraken"}'
+        values: '100x5 15000x20'
+      - series: 'kafka_consumergroup_lag{consumergroup="rivus-process", topic="rivus.trades.coinbase"}'
+        values: '100x5 15000x20'
+      - series: 'kafka_consumergroup_lag{consumergroup="clickhouse-trades", topic="rivus.trades.kraken"}'
+        values: '15000x25'         # behind, but under the limit by itself
+      - series: 'rivus_stats_up'
+        values: '1x5 0x20'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: ConsumerLagging
+      - eval_time: 12m
+        alertname: ConsumerLagging
+        exp_alerts:
+          - exp_labels: {severity: warning, consumergroup: rivus-process}
+            exp_annotations: {summary: "rivus-process is 30000 messages behind"}
+      - eval_time: 9m
+        alertname: HealthQueryFailing
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "The API cannot measure the stream in ClickHouse"
+              description: "Gaps, late trades and reconciliation gauges are stale while this fires."
+
+  # ----------------------------------------------------------------- checks
+  - name: missed trades, differing bars, and a reconciliation that stops
+    interval: 1m
+    input_series:
+      - series: 'rivus_missing_trades_last_hour{venue="coinbase"}'
+        values: '0x5 89x10'
+      - series: 'rivus_recon_differences_last_day{venue="kraken"}'
+        values: '0x5 6x10'
+      - series: 'rivus_recon_differences_last_day{venue="bitstamp"}'
+        values: '0x15'
+      - series: 'rivus_recon_last_hour_age_seconds{venue="kraken"}'
+        values: '10200+60x40'      # 2 h 50 min, growing: passes 3 h at minute 10
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: TradesMissed
+        exp_alerts:
+          - exp_labels: {severity: info, venue: coinbase}
+            exp_annotations:
+              summary: "89 trades missed on coinbase in the last hour"
+              description: "Trade ids jumped. The hourly reconciliation shows which bars it changed."
+      - eval_time: 6m
+        alertname: ReconciliationDifferences
+        exp_alerts:
+          - exp_labels: {severity: warning, venue: kraken}
+            exp_annotations:
+              summary: "6 bars on kraken differ from the batch rebuild (last 24 hours)"
+              description: "Rounding does not count. See the classification of each on the web page."
+      - eval_time: 15m             # over 3 hours for 4 minutes: pending
+        alertname: ReconciliationStale
+      - eval_time: 22m
+        alertname: ReconciliationStale
+        exp_alerts:
+          - exp_labels: {severity: warning, venue: kraken}
+            exp_annotations:
+              summary: "The newest reconciled hour for kraken started 3h 12m 0s ago"
+              description: "The Airflow job is not running, failing, or finds no bars to compare."
