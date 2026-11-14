@@ -5,6 +5,7 @@
 {"venue":"bitstamp","pair":"BTC-USD","trade_id":5000,"price":100.5,"qty":2,"side":"buy","event_time":"2026-01-01 12:00:10.000","recv_time":"2026-01-01 12:00:10.100"}
 {"venue":"bitstamp","pair":"BTC-USD","trade_id":5007,"price":100.5,"qty":2,"side":"buy","event_time":"2026-01-01 12:00:20.000","recv_time":"2026-01-01 12:00:20.100"}
 {"venue":"kraken","pair":"BTC-USD","trade_id":7,"price":101,"qty":3,"side":"buy","event_time":"2026-01-01 12:00:30.000","recv_time":"2026-01-01 12:00:30.100"}
+{"venue":"bitstamp","pair":"ETH-USD","trade_id":9000,"price":2017.27,"qty":0.000064,"side":"buy","event_time":"2026-01-01 12:00:40.000","recv_time":"2026-01-01 12:00:40.100"}
 {"venue":"coinbase","pair":"BTC-USD","trade_id":105,"price":99,"qty":4,"side":"sell","event_time":"2026-01-01 12:00:59.000","recv_time":"2026-01-01 12:00:59.100"}
 {"venue":"coinbase","pair":"BTC-USD","trade_id":106,"price":103,"qty":1,"side":"buy","event_time":"2026-01-01 12:01:00.000","recv_time":"2026-01-01 12:01:00.100"}
 {"venue":"kraken","pair":"BTC-USD","trade_id":8,"price":104,"qty":1,"side":"buy","event_time":"2026-01-01 12:01:10.000","recv_time":"2026-01-01 12:01:10.100"}

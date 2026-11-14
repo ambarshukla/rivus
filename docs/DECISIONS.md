@@ -327,3 +327,20 @@ took 580 MB in tables and 138 MB in files, none of it ever expiring. The Kafka t
 every second and each poll is logged at trace level. The two tables kept are the ones that
 answer real questions (which query was slow; what was written and merged); the metric tables
 duplicate what Prometheus already collects.
+
+## 27. The stream's average price is computed exactly
+
+**Chosen.** In the bar queries, price and quantity are narrowed to `DECIMAL(18, 8)` before
+they are multiplied, so the product keeps all 16 decimal places.
+
+**Lost.** Leaving the arithmetic alone and widening the "rounding" tolerance for bars with
+little volume.
+
+**Why.** Flink caps a decimal at 38 digits. The product of two `DECIMAL(24, 8)` would need 49,
+so Flink cuts its scale to 6 decimal places. Decision 22 recorded this as harmless rounding,
+and for ordinary bars it was. For a bar holding one trade of 0.000064 it was not: the value
+0.12910528 became 0.129105, and dividing by the quantity gave 2017.265625 for a trade at
+2017.27. The reconciliation called it "unexplained", correctly, since the stream's number was
+wrong and not merely rounded. A wider tolerance would have hidden a wrong price; ten digits
+before the decimal point are more than any price or quantity here needs. Decision 22 still
+stands: the classification stays, with far less to classify.

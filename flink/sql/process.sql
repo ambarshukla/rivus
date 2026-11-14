@@ -19,6 +19,12 @@ WHERE row_num = 1;
 
 -- One-minute bars as a view, because both the bars topic and the cross-venue
 -- check read them. window_time keeps event time flowing to the next window.
+--
+-- VWAP: price and qty are narrowed to DECIMAL(18, 8) before multiplying. Flink
+-- caps a decimal at 38 digits and, when a product would need more, cuts its
+-- scale down to 6: DECIMAL(24, 8) * DECIMAL(24, 8) keeps only 6 decimals, which
+-- moved the VWAP of a bar holding one trade of 0.000064 by 0.004. Two
+-- DECIMAL(18, 8) give DECIMAL(37, 16), so the product is exact.
 CREATE TEMPORARY VIEW v_bars_1m AS
 SELECT
   venue, pair, window_start AS bar_start, window_end AS bar_end, window_time AS bar_time,
@@ -27,7 +33,8 @@ SELECT
   MIN(price)                                              AS low,
   LAST_VALUE(price)                                       AS `close`,
   SUM(qty)                                                AS volume,
-  CAST(SUM(price * qty) / SUM(qty) AS DECIMAL(24, 8))     AS vwap,
+  CAST(SUM(CAST(price AS DECIMAL(18, 8)) * CAST(qty AS DECIMAL(18, 8))) / SUM(qty)
+       AS DECIMAL(24, 8))                                 AS vwap,
   COUNT(*)                                                AS trades,
   MIN(trade_id)                                           AS first_trade_id,
   MAX(trade_id)                                           AS last_trade_id
@@ -43,7 +50,8 @@ SELECT
   venue, pair, window_start, window_end,
   FIRST_VALUE(price), MAX(price), MIN(price), LAST_VALUE(price),
   SUM(qty),
-  CAST(SUM(price * qty) / SUM(qty) AS DECIMAL(24, 8)),
+  CAST(SUM(CAST(price AS DECIMAL(18, 8)) * CAST(qty AS DECIMAL(18, 8))) / SUM(qty)
+       AS DECIMAL(24, 8)),
   COUNT(*), MIN(trade_id), MAX(trade_id)
 FROM TABLE(TUMBLE(TABLE trades_once, DESCRIPTOR(event_time), INTERVAL '1' SECOND))
 GROUP BY venue, pair, window_start, window_end;
