@@ -13,6 +13,7 @@ public interface IHistoryStore
     Task<IReadOnlyList<Stat>> GetStatsAsync(CancellationToken ct);
     Task<IReadOnlyList<ReconRun>> GetReconRunsAsync(int hours, CancellationToken ct);
     Task<IReadOnlyList<ReconDiff>> GetReconDiffsAsync(int hours, CancellationToken ct);
+    Task<IReadOnlyList<ReconDay>> GetReconDaysAsync(int days, CancellationToken ct);
 }
 
 /// <summary>
@@ -133,6 +134,16 @@ public sealed class ClickHouseStore(HttpClient http, RivusSettings settings) : I
             ORDER BY classification = 'rounding', window_start DESC, venue, pair, field
             LIMIT 500
             """, new() { ["hours"] = hours.ToString() }, ct);
+
+    // Filled by the batch's daily roll-up shortly after midnight UTC, so the
+    // newest day here is yesterday.
+    public Task<IReadOnlyList<ReconDay>> GetReconDaysAsync(int days, CancellationToken ct) =>
+        QueryAsync<ReconDay>("""
+            SELECT day, venue, pair, hours, stream_bars, batch_bars, matched, differences
+            FROM rivus.recon_daily FINAL
+            WHERE day >= today() - {days:UInt32}
+            ORDER BY day DESC, venue, pair
+            """, new() { ["days"] = days.ToString() }, ct);
 
     private async Task<IReadOnlyList<T>> QueryAsync<T>(
         string sql, Dictionary<string, string> parameters, CancellationToken ct)

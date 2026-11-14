@@ -39,6 +39,11 @@ public sealed record ReconRun(
     DateTimeOffset HourStart, string Venue, string Pair, long StreamBars, long BatchBars,
     long Matched, long Differences, DateTimeOffset CheckedAt);
 
+/// <summary>One completed day of hourly reconciliations, added up.</summary>
+public sealed record ReconDay(
+    DateOnly Day, string Venue, string Pair, long Hours, long StreamBars, long BatchBars,
+    long Matched, long Differences);
+
 public sealed record ReconDiff(
     DateTimeOffset HourStart, string Venue, string Pair, DateTimeOffset WindowStart,
     string Field, string StreamValue, string BatchValue, string Classification);

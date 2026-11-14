@@ -79,6 +79,9 @@ api.MapGet("/reconciliation/runs", async (int? hours, IHistoryStore history, Can
 api.MapGet("/reconciliation/differences", async (int? hours, IHistoryStore history, CancellationToken ct) =>
     Results.Ok(await history.GetReconDiffsAsync(Hours(hours), ct)));
 
+api.MapGet("/reconciliation/daily", async (int? days, IHistoryStore history, CancellationToken ct) =>
+    Results.Ok(await history.GetReconDaysAsync(Math.Clamp(days ?? 14, 1, 90), ct)));
+
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 app.MapHub<PricesHub>("/hubs/prices");
 app.MapMetrics(); // GET /metrics

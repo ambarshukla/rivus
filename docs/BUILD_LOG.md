@@ -307,3 +307,15 @@ continued from the position Kafka holds for it. Ten minutes before against ten m
 
 Trades per minute are continuous across the change and no gap was reported. The prune, run
 by hand for the hour of 21:00, removed the 9 folders older than 72 hours and nothing else.
+
+## The reconciliation by day, and what the reasons mean (2026-11-14)
+
+**Built.** `GET /api/reconciliation/daily?days=14` returns the batch's daily roll-up (one row
+per completed day, venue and pair; `days` is held between 1 and 90). The page adds them up
+into one row per day under "By day", and lists what each difference reason means under the
+differences table. No change to the stream or the batch.
+
+**Verified by running it.** 37 API tests pass, four of them new. Against the running stack
+the endpoint returned 18 rows for three days, and the page, loaded in a headless browser,
+showed 12, 4 and 24 hours checked for 11 to 13 November with 4,010 of 4,016, 1,207 of 1,207
+and 8,615 of 8,616 bars agreeing: the same numbers as the table in ClickHouse.
