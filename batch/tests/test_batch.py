@@ -213,3 +213,22 @@ def test_export_gives_up_waiting_for_a_stream_that_is_not_coming(monkeypatch, ca
 
     assert steps.wait_for_stream(Hour.parse(HOUR), timeout=0, poll=0) is False
     assert "comparing anyway" in capsys.readouterr().out
+
+
+def test_old_working_folders_are_pruned_and_nothing_else(tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "DATA_DIR", tmp_path)
+    for name in ["2026-11-08T11", "2026-11-08T12", "2026-11-08T13", "2026-11-11T12", "notes", "2026-11-01"]:
+        (tmp_path / name / "raw").mkdir(parents=True)
+    (tmp_path / "2026-11-01T00").write_text("a file, not a folder")
+
+    removed = steps.prune(Hour.parse(HOUR), keep_hours=72)  # keeps 2026-11-08T12 onwards
+
+    assert removed == ["2026-11-08T11"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "2026-11-01", "2026-11-01T00", "2026-11-08T12", "2026-11-08T13", "2026-11-11T12", "notes"]
+
+
+def test_prune_without_a_data_folder_does_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(common, "DATA_DIR", tmp_path / "missing")
+
+    assert steps.prune(Hour.parse(HOUR)) == []

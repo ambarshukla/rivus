@@ -69,6 +69,10 @@ transformed and inserted into another.
 
 **Pair.** Two currencies traded against each other, such as BTC-USD.
 
+**Part.** In ClickHouse, the files written by one insert into a table. Background **merges**
+combine small parts into larger ones, rewriting their rows; many small inserts therefore cost
+far more disk writes than the data itself.
+
 **Partition.** An ordered log inside a Kafka topic. Order is guaranteed within a partition,
 not across partitions.
 

@@ -279,3 +279,31 @@ fixtures gain that trade.
 **Verified by running it.** With the new fixture and the old SQL the test gives 2017.265625;
 with the new SQL 2017.27. Bars that divide unevenly now also carry 8 correct decimals
 (101.33333333 where the old SQL gave 101.333333).
+
+## Less disk: slower hand-overs to ClickHouse, old batch files deleted (2026-11-14)
+
+**Found** while checking what grows on disk after three days. Two things: ClickHouse had
+written 471 GB to store about 350 MB (decision 28), and the hourly batch had kept every
+hour's working folder, 2.7 GB so far (decision 29). Everything else is bounded by an expiry:
+Kafka topics, the ClickHouse tables, Prometheus.
+
+**Changed.** `kafka_flush_interval_ms` from 1 to 10 seconds in `clickhouse/init/01_schema.sql`.
+A `prune` step in the batch (`rivus_batch/steps.py`), run as the last task of
+`reconcile_hourly`, with two tests.
+
+**Predicted.** About a tenth of the parts and of the merge writes; bars stored about 5 seconds
+later on average.
+
+**Verified by running it.** The setting cannot be altered on a Kafka table, so on this machine
+the seven `_mv` and `_queue` objects were dropped and the schema file run again; ClickHouse
+continued from the position Kafka holds for it. Ten minutes before against ten minutes after:
+
+| | before | after |
+|---|---|---|
+| New parts | 1,572 | 210 |
+| Written by merges | 1.53 GB | 122 MB |
+| Replaced parts waiting for deletion | 1.3 GB | 110 MB |
+| Delay from the end of a 1-second window to the bar being stored | 3.4 s average, 5.7 s worst | 7.6 s average, 13.7 s worst |
+
+Trades per minute are continuous across the change and no gap was reported. The prune, run
+by hand for the hour of 21:00, removed the 9 folders older than 72 hours and nothing else.

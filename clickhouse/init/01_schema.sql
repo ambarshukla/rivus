@@ -7,6 +7,14 @@
 -- so the tables are ReplacingMergeTree: rows with the same ORDER BY key
 -- collapse into one. Collapsing happens in the background, so queries that
 -- must not see duplicates add FINAL.
+--
+-- kafka_flush_interval_ms is how often a queue hands what it has read to its
+-- table. Every hand-over makes one new part on disk, and background merges
+-- rewrite parts into larger ones, so a short interval costs far more disk
+-- writes than the data itself. Ten seconds: rows are up to that much later
+-- in ClickHouse; the live prices do not come from here (decision 28).
+-- The setting cannot be altered: drop the _mv and the _queue and run this
+-- file again. Nothing is lost, the position is kept by Kafka.
 
 CREATE DATABASE IF NOT EXISTS rivus;
 
@@ -18,7 +26,7 @@ CREATE TABLE IF NOT EXISTS rivus.trades_queue (
 ) ENGINE = Kafka SETTINGS
   kafka_broker_list = 'kafka:9092', kafka_topic_list = 'rivus.trades.coinbase,rivus.trades.kraken,rivus.trades.bitstamp',
   kafka_group_name = 'clickhouse-trades', kafka_format = 'JSONEachRow',
-  kafka_flush_interval_ms = 1000;
+  kafka_flush_interval_ms = 10000;
 
 CREATE TABLE IF NOT EXISTS rivus.trades (
   venue LowCardinality(String), pair LowCardinality(String), trade_id UInt64,
@@ -41,7 +49,7 @@ CREATE TABLE IF NOT EXISTS rivus.quotes_queue (
 ) ENGINE = Kafka SETTINGS
   kafka_broker_list = 'kafka:9092', kafka_topic_list = 'rivus.quotes',
   kafka_group_name = 'clickhouse-quotes', kafka_format = 'JSONEachRow',
-  kafka_flush_interval_ms = 1000;
+  kafka_flush_interval_ms = 10000;
 
 CREATE TABLE IF NOT EXISTS rivus.quotes (
   venue LowCardinality(String), pair LowCardinality(String),
@@ -68,7 +76,7 @@ CREATE TABLE IF NOT EXISTS rivus.bars_1s_queue (
 ) ENGINE = Kafka SETTINGS
   kafka_broker_list = 'kafka:9092', kafka_topic_list = 'rivus.bars_1s',
   kafka_group_name = 'clickhouse-bars-1s', kafka_format = 'JSONEachRow',
-  kafka_flush_interval_ms = 1000;
+  kafka_flush_interval_ms = 10000;
 
 CREATE TABLE IF NOT EXISTS rivus.bars_1s (
   venue LowCardinality(String), pair LowCardinality(String),
@@ -89,7 +97,7 @@ CREATE TABLE IF NOT EXISTS rivus.bars_1m_queue AS rivus.bars_1s_queue
 ENGINE = Kafka SETTINGS
   kafka_broker_list = 'kafka:9092', kafka_topic_list = 'rivus.bars_1m',
   kafka_group_name = 'clickhouse-bars-1m', kafka_format = 'JSONEachRow',
-  kafka_flush_interval_ms = 1000;
+  kafka_flush_interval_ms = 10000;
 
 CREATE TABLE IF NOT EXISTS rivus.bars_1m (
   venue LowCardinality(String), pair LowCardinality(String),
@@ -115,7 +123,7 @@ CREATE TABLE IF NOT EXISTS rivus.late_trades_queue (
 ) ENGINE = Kafka SETTINGS
   kafka_broker_list = 'kafka:9092', kafka_topic_list = 'rivus.late_trades',
   kafka_group_name = 'clickhouse-late-trades', kafka_format = 'JSONEachRow',
-  kafka_flush_interval_ms = 1000;
+  kafka_flush_interval_ms = 10000;
 
 CREATE TABLE IF NOT EXISTS rivus.late_trades (
   venue LowCardinality(String), pair LowCardinality(String), trade_id UInt64,
@@ -138,7 +146,7 @@ CREATE TABLE IF NOT EXISTS rivus.gaps_queue (
 ) ENGINE = Kafka SETTINGS
   kafka_broker_list = 'kafka:9092', kafka_topic_list = 'rivus.gaps',
   kafka_group_name = 'clickhouse-gaps', kafka_format = 'JSONEachRow',
-  kafka_flush_interval_ms = 1000;
+  kafka_flush_interval_ms = 10000;
 
 CREATE TABLE IF NOT EXISTS rivus.gaps (
   venue LowCardinality(String), pair LowCardinality(String),
@@ -160,7 +168,7 @@ CREATE TABLE IF NOT EXISTS rivus.venue_checks_queue (
 ) ENGINE = Kafka SETTINGS
   kafka_broker_list = 'kafka:9092', kafka_topic_list = 'rivus.venue_checks',
   kafka_group_name = 'clickhouse-venue-checks', kafka_format = 'JSONEachRow',
-  kafka_flush_interval_ms = 1000;
+  kafka_flush_interval_ms = 10000;
 
 CREATE TABLE IF NOT EXISTS rivus.venue_checks (
   pair LowCardinality(String),
