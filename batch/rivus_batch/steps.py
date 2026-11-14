@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
 from datetime import UTC, datetime, timedelta
 
+from . import common
 from .common import DBT_DIR, VENUES, Hour, clickhouse
 
 # Raw messages are picked by the time they were received. Take a margin either
@@ -181,3 +184,27 @@ def rollup(day: str) -> None:
         GROUP BY day, venue, pair""", day=day)
     print(clickhouse("SELECT * FROM rivus.recon_daily FINAL WHERE day = {day:Date} FORMAT TSVWithNames",
                      day=day).decode())
+
+
+# Each hour leaves its working files behind (the raw export, DuckDB, dbt's
+# output): useful for looking into a difference, about 40 MB an hour. The
+# results themselves are in ClickHouse, so old folders can go.
+KEEP_HOURS = int(os.environ.get("BATCH_KEEP_HOURS", "72"))
+HOUR_DIR = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}")
+
+
+def prune(hour: Hour, keep_hours: int = KEEP_HOURS) -> list[str]:
+    """Delete the working folders of hours more than `keep_hours` before this one.
+
+    Only folders named like an hour are touched, and names sort by time, so
+    the comparison is on the name.
+    """
+    oldest_kept = (hour.start - timedelta(hours=keep_hours)).strftime("%Y-%m-%dT%H")
+    removed = []
+    if common.DATA_DIR.is_dir():
+        for path in sorted(common.DATA_DIR.iterdir()):
+            if path.is_dir() and HOUR_DIR.fullmatch(path.name) and path.name < oldest_kept:
+                shutil.rmtree(path)
+                removed.append(path.name)
+    print(f"pruned {len(removed)} hour folders older than {oldest_kept}")
+    return removed

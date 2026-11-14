@@ -39,7 +39,10 @@ with DAG(
     dbt_build = BashOperator(task_id="dbt_build", bash_command=f"{BATCH} dbt --hour {HOUR}")
     load = BashOperator(task_id="load_results", bash_command=f"{BATCH} load --hour {HOUR}")
 
-    [export_raw, export_stream] >> dbt_build >> load
+    # Working files of hours older than three days are deleted; the results stay in ClickHouse.
+    prune = BashOperator(task_id="prune_old_files", bash_command=f"{BATCH} prune --hour {HOUR}")
+
+    [export_raw, export_stream] >> dbt_build >> load >> prune
 
 with DAG(
     dag_id="reconcile_daily",

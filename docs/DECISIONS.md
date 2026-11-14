@@ -344,3 +344,32 @@ and for ordinary bars it was. For a bar holding one trade of 0.000064 it was not
 wrong and not merely rounded. A wider tolerance would have hidden a wrong price; ten digits
 before the decimal point are more than any price or quantity here needs. Decision 22 still
 stands: the classification stays, with far less to classify.
+
+## 28. ClickHouse takes rows from Kafka every ten seconds, not every second
+
+**Chosen.** `kafka_flush_interval_ms = 10000` on all seven queue tables.
+
+**Lost.** One second (the first setting); or keeping one second and shortening how long
+replaced parts stay on disk (`old_parts_lifetime`), which frees space sooner but writes just
+as much.
+
+**Why.** Every hand-over from a queue to its table creates a part, a small set of files, and
+ClickHouse then merges parts into larger ones in the background, rewriting the data each time.
+At one second that was about 9,000 new parts an hour. Measured over an hour: 34 MB of new data
+caused 7.5 GB of merge writes, and the server had written 471 GB in its first two days. The
+price of ten seconds is that a bar or trade reaches ClickHouse up to ten seconds later, so the
+delay measured in decision 12 no longer holds (see the build log). The live prices on the page
+come from Redis and are not affected; the hourly comparison already waits for the stream to
+pass the hour (decision 24).
+
+## 29. The batch keeps three days of working files
+
+**Chosen.** After each hourly run, the working folders of hours more than 72 hours old are
+deleted (`BATCH_KEEP_HOURS`).
+
+**Lost.** Keeping them all; or deleting each hour's files as soon as its results are loaded.
+
+**Why.** An hour's folder holds the raw export, the DuckDB file and dbt's output: about 40 MB,
+a gigabyte a day, with nothing ever removing them. They are only needed to look into a
+difference by hand, which happens within a day or two. The results are in ClickHouse, and an
+hour can be rebuilt from Kafka for as long as the raw trades are kept (7 days).
