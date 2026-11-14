@@ -258,3 +258,72 @@ difference equally.
 arithmetic keeps six decimal places through the multiplication, DuckDB keeps sixteen. That is
 worth recording and not worth an alarm. Rounding is tested first, because a tiny difference
 is rounding whatever else happened in that minute.
+
+## 23. Job starts are recorded, and explain differences as "restart"
+
+**Chosen.** The script that keeps the Flink jobs submitted writes one row per start to
+ClickHouse (`job_starts`): when the job started, whether it resumed from a checkpoint, and
+when the job before it last saved a checkpoint. The reconciliation labels a differing bar
+"restart" if its minute lies between that last checkpoint (less one minute) and the start.
+The order of reasons is now rounding, restart, late event, gap, ordering, unexplained.
+
+**Lost.** A Kafka topic for job starts, read by ClickHouse like every other table: it would
+match the rest of the design, but needs a Kafka client in the Flink image for about one
+message a week. Asking Flink's REST API for job history: a session cluster forgets its jobs
+when the job manager restarts, which is exactly when the answer is needed. Putting "restart"
+after "gap": a job that starts with empty state has forgotten the last trade id it saw and
+its open windows, so gaps and late trades in that minute are symptoms of the restart.
+
+**Why.** The first restart with changed SQL produced six differing bars, half labelled "gap"
+and half "unexplained", although the cause was known. "Unexplained" should mean that nobody
+knows. The last checkpoint is used as the start of the outage because nothing records the
+moment a job dies; with a checkpoint every 30 seconds it is at most that far off. The starts
+are written to a file first and handed to ClickHouse when it answers, so a job is never held
+up by the record of it.
+
+## 24. The batch waits for the stream to pass the hour
+
+**Chosen.** Before exporting the stream's bars, the batch waits (up to five minutes) until the
+stream has produced a bar later than the hour being checked. If none comes it compares anyway.
+
+**Lost.** Failing the task and letting Airflow retry: a venue outage would then look like a
+broken batch. Not waiting: correct on a normal day, wrong after an outage.
+
+**Why.** A minute's bar is only emitted once a later trade has been seen. After the machine
+had been off overnight, Airflow started faster than Flink and checked the interrupted hour
+before the stream had emitted its last minute: six bars were reported missing that appeared
+seconds later.
+
+## 25. Alert rules in Prometheus, shown and not sent
+
+**Chosen.** Twelve rules in `monitoring/alerts.yml`, evaluated by Prometheus, visible on its
+`/alerts` page and as a panel on the Grafana dashboard. Each is tested with `promtool` against
+made-up metric values, in CI.
+
+**Lost.** Alertmanager with e-mail or chat delivery: it needs a destination and a secret, and
+on one laptop the person to be told is the person at the keyboard. Grafana-managed alerts:
+they live in Grafana's database or more provisioning files, and cannot be unit-tested the way
+rule files can.
+
+**Why.** The gauges existed but somebody had to look at them. After the stack was found to
+have been off for twenty hours, "what is wrong right now" should be one glance. Rules as a
+file are reviewed and tested like code. Thresholds come from what was measured: a healthy
+reconciliation is between 1 h 10 min and 2 h 10 min old, so three hours is stale; consumer
+lag sits in the hundreds, so twenty thousand is behind.
+
+An alert cannot report that the whole machine is off: Prometheus is off too.
+
+## 26. ClickHouse's own logs are cut back
+
+**Chosen.** A settings file (`clickhouse/config/system-logs.xml`) sets the server's log level
+to "information", keeps `query_log` and `part_log` for seven days, and switches off the other
+self-logging tables (text, trace, metric, asynchronous metric, processors profile, query
+views, OpenTelemetry spans).
+
+**Lost.** Leaving the defaults; or keeping every table with a short expiry.
+
+**Why.** After thirteen hours the market data took 58 MB and ClickHouse's logs about itself
+took 580 MB in tables and 138 MB in files, none of it ever expiring. The Kafka tables poll
+every second and each poll is logged at trace level. The two tables kept are the ones that
+answer real questions (which query was slow; what was written and merged); the metric tables
+duplicate what Prometheus already collects.

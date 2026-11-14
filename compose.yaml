@@ -154,6 +154,7 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+      - ./clickhouse/config/system-logs.xml:/etc/clickhouse-server/config.d/system-logs.xml:ro
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -230,6 +231,7 @@ services:
       - "127.0.0.1:19090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
 
   grafana:
@@ -314,6 +316,15 @@ services:
     image: rivus-flink
     pull_policy: never
     entrypoint: ["/bin/bash", "/opt/flink/run-sql-tests.sh"]
+
+  # promtool checks the alert rules against made-up metric values.
+  alerts-test:
+    profiles: ["test"]
+    image: prom/prometheus:v3.5.0
+    entrypoint: ["promtool"]
+    command: ["test", "rules", "/monitoring/alerts_test.yml"]
+    volumes:
+      - ./monitoring:/monitoring:ro
 
   collectors-test:
     profiles: ["test"]

@@ -34,9 +34,12 @@ jobs:
           - name: batch (ruff, pytest with dbt, DAG load)
             build: airflow
             run: batch-test
+          - name: alert rules (promtool)
+            run: alerts-test
     steps:
       - uses: actions/checkout@v4
       - name: Build
+        if: matrix.build
         run: docker compose --profile test build ${{ matrix.build }}
       - name: Test
         run: docker compose --profile test run --rm ${{ matrix.run }}

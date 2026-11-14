@@ -6,6 +6,10 @@
 # A job is resumed from its last checkpoint (its saved state and its position
 # in Kafka) when one exists and the SQL has not changed since. Otherwise it
 # starts with empty state from the last position it committed to Kafka.
+#
+# Every start is also recorded in ClickHouse (rivus.job_starts), with the time
+# the previous job is last known to have worked. The hourly reconciliation
+# uses it to label differences in that period "restart".
 set -uo pipefail
 
 JM="${JOBMANAGER_HOST:-flink-jobmanager}"
@@ -13,6 +17,10 @@ REST="http://$JM:8081"
 JOBS="${JOBS:-normalise process}"
 SQL=/opt/flink/sql
 STATE=/flink-state
+CLICKHOUSE_URL="${CLICKHOUSE_URL:-http://clickhouse:8123}"
+CLICKHOUSE_USER="${CLICKHOUSE_USER:-rivus}"
+CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-rivus}"
+PENDING="$STATE/jobs/starts.pending"
 mkdir -p "$STATE/jobs"
 
 log() { echo "$(date -u +%FT%TZ) $*"; }
@@ -34,8 +42,30 @@ last_checkpoint() { # job name -> path of its newest complete checkpoint, if usa
   ls -dt "$STATE/checkpoints/$jid"/chk-*/_metadata 2>/dev/null | head -1 | xargs -r dirname
 }
 
+down_since() { # job name -> when its previous job last saved a checkpoint, if known
+  local jid newest
+  jid=$(cat "$STATE/jobs/$1.jid" 2>/dev/null) || return 0
+  # shellcheck disable=SC2012
+  newest=$(ls -dt "$STATE/checkpoints/$jid"/chk-*/_metadata 2>/dev/null | head -1)
+  [ -n "$newest" ] && date -u -d "@$(stat -c %Y "$newest")" '+%F %T.000'
+}
+
+record_start() { # job name, job id, started at, down since (may be empty), true|false resumed
+  # Written to a file first: ClickHouse may not be up yet when a job starts.
+  echo "{\"job\":\"$1\",\"job_id\":\"$2\",\"started_at\":\"$3\",\"down_since\":\"${4:-$3}\",\"resumed\":$5}" >> "$PENDING"
+}
+
+send_starts() { # hand the recorded starts to ClickHouse; keep them if it is not there
+  [ -s "$PENDING" ] || return 0
+  curl -fsS -o /dev/null -u "$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD" \
+       --data-binary "@$PENDING" \
+       "$CLICKHOUSE_URL/?query=INSERT%20INTO%20rivus.job_starts%20FORMAT%20JSONEachRow" 2>/dev/null \
+    && rm -f "$PENDING"
+}
+
 submit() { # job name, optional checkpoint path
-  local init=/tmp/init-$1.sql out
+  local init=/tmp/init-$1.sql out before
+  before=$(down_since "$1")
   cp "$SQL/tables.sql" "$init"
   [ -n "${2:-}" ] && echo "SET 'execution.state-recovery.path' = 'file://$2';" >> "$init"
   out=$(/opt/flink/bin/sql-client.sh -Drest.address="$JM" -Drest.port=8081 -i "$init" -f "$SQL/$1.sql" 2>&1)
@@ -47,6 +77,7 @@ submit() { # job name, optional checkpoint path
   fi
   echo "$jid" > "$STATE/jobs/$1.jid"
   sql_hash "$1" > "$STATE/jobs/$1.sqlhash"
+  record_start "$1" "$jid" "$(date -u '+%F %T.%3N')" "$before" "$([ -n "${2:-}" ] && echo true || echo false)"
   log "rivus-$1 submitted as $jid"
 }
 
@@ -67,5 +98,6 @@ while true; do
   else
     log "waiting for the job manager"
   fi
+  send_starts
   sleep 30
 done

@@ -1,5 +1,9 @@
 # Glossary
 
+**Alert rule.** A query Prometheus runs on a schedule that should return nothing. While it
+returns something the alert is *pending*; once that has lasted for the rule's `for` time it
+is *firing*.
+
 **Airflow.** A scheduler for batch work: it runs tasks at set times, in a set order, retries
 failures and keeps a history of every run.
 
@@ -73,6 +77,9 @@ listening; every current listener gets a copy. Nothing is stored.
 
 **Reconciliation.** Computing the same result two independent ways and explaining every
 difference.
+
+**Restart (classification).** The reason given to a differing bar whose minute falls while a
+stream job was out of action: between its last checkpoint and the start of its replacement.
 
 **ReplacingMergeTree.** A ClickHouse table type in which rows with the same key are
 eventually collapsed into one. `FINAL` in a query forces the collapse at read time.

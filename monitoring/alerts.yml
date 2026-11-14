@@ -1,0 +1,106 @@
+# Alert rules. Prometheus evaluates each expression every 15 seconds; an alert
+# is "pending" as soon as its expression is true and "firing" once it has
+# stayed true for the time given in "for".
+#
+# Nothing sends these anywhere: there is no Alertmanager. They are shown at
+# http://localhost:19090/alerts and on the Grafana dashboard.
+#
+# Checked by alerts_test.yml:  docker compose --profile test run --rm alerts-test
+groups:
+  - name: collect
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.instance }} does not answer Prometheus"
+
+      - alert: CollectorDisconnected
+        expr: rivus_collector_connected == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "The {{ $labels.venue }} collector has no connection to the venue"
+          description: "It reconnects by itself with a growing wait. Every minute here is missed trades."
+
+      - alert: VenueQuiet
+        expr: time() - rivus_collector_last_message_timestamp_seconds{kind="trades"} > 900
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "No trade message from {{ $labels.venue }} for 15 minutes"
+          description: "Connected but silent: a quiet market, or a subscription the venue dropped."
+
+  - name: process
+    rules:
+      - alert: StreamJobMissing
+        expr: flink_jobmanager_numRunningJobs < 2
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $value }} of 2 Flink jobs running"
+          description: "flink-submit resubmits missing jobs every 30 seconds; three minutes means it cannot."
+
+      - alert: StreamJobRestarting
+        expr: increase(flink_jobmanager_job_numRestarts[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Flink restarted {{ $labels.job_name }} by itself in the last 15 minutes"
+
+      - alert: CheckpointsStopped
+        expr: increase(flink_jobmanager_job_numberOfCompletedCheckpoints[5m]) == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.job_name }} has not completed a checkpoint for 10 minutes"
+          description: "A restart now would lose or replay that much work."
+
+      - alert: NoNewBars
+        expr: min(rivus_last_bar_age_seconds) > 120
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: "No venue has had a new 1-second bar stored for {{ $value | humanizeDuration }}"
+          description: "Trades may still be arriving: look at consumer lag to see where they stop."
+
+      - alert: ConsumerLagging
+        expr: sum by (consumergroup) (kafka_consumergroup_lag) > 20000
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.consumergroup }} is {{ $value | printf \"%.0f\" }} messages behind"
+
+      - alert: HealthQueryFailing
+        expr: rivus_stats_up == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: "The API cannot measure the stream in ClickHouse"
+          description: "Gaps, late trades and reconciliation gauges are stale while this fires."
+
+  - name: checks
+    rules:
+      - alert: TradesMissed
+        expr: rivus_missing_trades_last_hour > 0
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} trades missed on {{ $labels.venue }} in the last hour"
+          description: "Trade ids jumped. The hourly reconciliation shows which bars it changed."
+
+      - alert: ReconciliationDifferences
+        expr: rivus_recon_differences_last_day > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $value }} bars on {{ $labels.venue }} differ from the batch rebuild (last 24 hours)"
+          description: "Rounding does not count. See the classification of each on the web page."
+
+      - alert: ReconciliationStale
+        # Measured from the start of the newest hour checked: between 1 h 10 min
+        # and 2 h 10 min when the hourly job is healthy.
+        expr: rivus_recon_last_hour_age_seconds > 3 * 3600
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "The newest reconciled hour for {{ $labels.venue }} started {{ $value | humanizeDuration }} ago"
+          description: "The Airflow job is not running, failing, or finds no bars to compare."

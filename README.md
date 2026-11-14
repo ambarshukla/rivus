@@ -48,7 +48,9 @@ further down the same page.
 
 **Grafana.** One row per stage: messages per second and silence per venue; consumer lag and
 the delay from the end of a bar's window to the bar being stored (about 3.5 seconds); gaps,
-late trades and how far the venues are apart; bars that differ from the batch rebuild.
+late trades and how far the venues are apart; bars that differ from the batch rebuild; and
+which alert rules are firing (twelve rules in `monitoring/alerts.yml`, from a venue gone
+quiet to a reconciliation that has stopped).
 
 ![Grafana dashboard: collect, process, checks, reconcile](docs/img/grafana.png)
 
@@ -80,7 +82,7 @@ Look at it:
 |---|---|
 | The page: live prices, chart, checks | <http://localhost:18080> |
 | Grafana dashboard | <http://localhost:13000> |
-| Prometheus | <http://localhost:19090> |
+| Prometheus (alerts at `/alerts`) | <http://localhost:19090> |
 | Flink web UI | <http://localhost:18081> |
 | Airflow (the hourly reconciliation) | <http://localhost:18082> |
 
@@ -105,6 +107,7 @@ docker compose --profile test run --rm latest-test
 docker compose --profile test run --rm api-test          # dotnet build and tests
 docker compose --profile test run --rm batch-test        # dbt run for real against fixtures
 docker compose --profile test run --rm flink-sql-test    # the SQL jobs against fixtures
+docker compose --profile test run --rm alerts-test       # the alert rules against made-up metrics
 ```
 
 Reconcile one hour by hand (Airflow does this by itself at ten past each hour):
@@ -130,6 +133,7 @@ bash scripts/replay.sh
 | `flink/sql/` | `tables.sql` (every topic as a table), `normalise.sql`, `process.sql` |
 | `flink/submit.sh` | keeps the jobs running and resumes them from checkpoints |
 | `clickhouse/init/` | tables fed from Kafka |
+| `clickhouse/config/` | limits on ClickHouse's own logs |
 | `latest/` | the Redis latest-price writer |
 | `api/` | the C# service: REST API, SignalR hub, and the page in `wwwroot/` |
 | `batch/` | the hourly reconciliation: `dags/`, the steps in `rivus_batch/`, the dbt project in `dbt/` |

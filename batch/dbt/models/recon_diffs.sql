@@ -3,6 +3,7 @@
 --
 -- Reasons, first match wins:
 --   rounding     the two numbers differ by less than a millionth of their size
+--   restart      a stream job was out of action during this minute
 --   late event   the stream flagged a trade in this minute as too late for its bar
 --   gap          the stream detected missing trade ids in this minute
 --   ordering     only open/close differ: same trades, taken in a different order
@@ -18,6 +19,16 @@ gaps as (
     from read_csv('{{ var("stream_dir") }}/gaps.csv', header = true,
                   columns = {venue: 'VARCHAR', pair: 'VARCHAR', prev_trade_id: 'BIGINT',
                              trade_id: 'BIGINT', missing: 'BIGINT', event_time: 'TIMESTAMP'})
+),
+
+-- From the last checkpoint of the job that stopped to the start of the job
+-- that replaced it. One minute earlier as well: that minute's bar may not
+-- have been emitted yet when the job stopped.
+restarts as (
+    select date_trunc('minute', down_since) - interval 1 minute as first_minute,
+           date_trunc('minute', started_at)                     as last_minute
+    from read_csv('{{ var("stream_dir") }}/restarts.csv', header = true,
+                  columns = {job: 'VARCHAR', started_at: 'TIMESTAMP', down_since: 'TIMESTAMP', resumed: 'BOOLEAN'})
 ),
 
 bars as (
@@ -68,6 +79,8 @@ select
     d.venue, d.pair, d.window_start, d.field, d.stream_value, d.batch_value,
     case
         when d.relative_difference < 1e-6 then 'rounding'
+        when exists (select 1 from restarts r
+                     where d.window_start between r.first_minute and r.last_minute) then 'restart'
         when late.venue is not null then 'late event'
         when gaps.venue is not null then 'gap'
         when d.field in ('open', 'close') and d.same_trades then 'ordering'
