@@ -262,3 +262,20 @@ little, so two thresholds were changed on a copy of the rules: both changes were
 expiry (read back from `system.tables`), the text log's newest row is from before the restart,
 and the stream's bars continued within a minute. The old log tables were dropped by hand on
 this machine; a fresh volume never creates them.
+
+## An average price that was wrong, not rounded (2026-11-14)
+
+**Found** by the reconciliation, as the only "unexplained" difference in 41 hours and 14,664
+bars: Bitstamp ETH-USD, 2026-11-13 00:02 UTC, one trade of 0.000064 at 2017.27; the stream's
+average price was 2017.265625.
+
+**Cause.** Flink kept 6 decimal places in price times quantity (decision 27). The error is
+at most half a millionth per trade, divided by the bar's volume: invisible in a busy bar,
+0.004 in this one.
+
+**Changed.** `flink/sql/process.sql` narrows both operands so the product is exact. The test
+fixtures gain that trade.
+
+**Verified by running it.** With the new fixture and the old SQL the test gives 2017.265625;
+with the new SQL 2017.27. Bars that divide unevenly now also carry 8 correct decimals
+(101.33333333 where the old SQL gave 101.333333).
