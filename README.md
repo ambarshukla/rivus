@@ -75,7 +75,9 @@ docker compose logs -f flink-submit # watch the two Flink jobs being submitted
 
 After changing code, rebuild with `BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose up -d --build`.
 Without that variable Docker gives every image a new id on every build and restarts all
-containers, and a restarted collector misses trades.
+containers, and a restarted collector misses trades. After changing anything in `flink/`, use
+`bash scripts/deploy-flink.sh` instead: it stops the jobs with a savepoint first, so they keep
+their state.
 
 Look at it:
 
@@ -132,7 +134,7 @@ bash scripts/replay.sh
 | `collectors/` | the Python collector; `venues/*.yaml` is one file per exchange |
 | `infra/kafka/` | topic creation |
 | `flink/sql/` | `tables.sql` (every topic as a table), `normalise.sql`, `process.sql` |
-| `flink/submit.sh` | keeps the jobs running and resumes them from checkpoints |
+| `flink/submit.sh` | keeps the jobs running and resumes them from checkpoints or savepoints |
 | `clickhouse/init/` | tables fed from Kafka |
 | `clickhouse/config/` | limits on ClickHouse's own logs |
 | `latest/` | the Redis latest-price writer |

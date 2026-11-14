@@ -7,6 +7,8 @@ SET 'table.local-time-zone' = 'UTC';
 -- that submits the job, not only in the cluster's configuration.
 SET 'execution.checkpointing.interval' = '30 s';
 SET 'execution.checkpointing.externalized-checkpoint-retention' = 'RETAIN_ON_CANCELLATION';
+-- A deploy stops the jobs with a savepoint first, so that changed SQL can keep
+-- its state where it still fits (scripts/deploy-flink.sh, flink/submit.sh).
 -- Forget per-key state (seen trade ids, previous trade id) after an hour without updates.
 SET 'table.exec.state.ttl' = '1 h';
 

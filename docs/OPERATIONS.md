@@ -36,6 +36,7 @@ $CH -q "SELECT hour_start, sum(stream_bars), sum(matched), sum(differences)
 docker compose up -d      # start; safe to repeat
 docker compose stop       # stop; data stays in the volumes
 BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose up -d --build   # after changing code
+bash scripts/deploy-flink.sh   # after changing anything in flink/: keeps the jobs' state
 ```
 
 - **Stopping loses trades.** The venues do not replay what was sent while nobody was
@@ -50,7 +51,8 @@ BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose up -d --build   # after changing
 | You change | What restarts | What it costs |
 |---|---|---|
 | `collectors/` or a venue file | that venue's collector | the trades sent during the reconnect, a second or two; shown as a gap |
-| `flink/sql/normalise.sql` or `process.sql` | that job, **with empty state** | the minute in flight comes out wrong; the reconciliation labels it "restart" |
+| `flink/sql/*.sql`, deployed with `scripts/deploy-flink.sh` | both jobs, from a savepoint | about 90 seconds of bars arrive late; none is wrong. If the saved state does not fit the new SQL the script says so and the next row applies |
+| `flink/sql/*.sql`, deployed with a plain rebuild | the changed job, **with empty state** | the minute in flight comes out wrong; the reconciliation labels it "restart" |
 | Nothing, but Flink restarts | both jobs, resumed from the last checkpoint | nothing |
 | `api/` | the API | the page reconnects by itself |
 | `batch/` | Airflow | nothing, unless an hourly run is in progress (ten past the hour, about 15 s) |
