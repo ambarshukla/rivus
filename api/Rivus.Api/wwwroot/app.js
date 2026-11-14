@@ -153,6 +153,34 @@ function renderHealth(stats) {
   ], "");
 }
 
+// Why a stream bar can differ from the batch's bar. The batch decides the reason
+// (batch/dbt/models/recon_diffs.sql); this is only the wording.
+const REASONS = {
+  "rounding": "the average price differs in its last digits only; counted as agreeing and not listed",
+  "restart": "the stream job was restarted during that minute and began the bar with part of its trades",
+  "late event": "a trade arrived after its bar was closed; the batch counts it, the stream could not",
+  "gap": "trades were missed around that minute (a dropped connection)",
+  "ordering": "the same trades in a different order, so the first or last price differs",
+  "unexplained": "none of the above: worth looking into",
+};
+$("#reasons").innerHTML = Object.entries(REASONS).map(([name, text]) => `<dt>${name}</dt><dd>${text}</dd>`).join("");
+
+// One row per day: the API's rows (one per day, venue and pair) added up.
+function renderDays(rows) {
+  const days = new Map();
+  for (const r of rows) {
+    const d = days.get(r.day) ?? { day: r.day, hours: 0, streamBars: 0, batchBars: 0, matched: 0, differences: 0 };
+    d.hours = Math.max(d.hours, r.hours);
+    for (const key of ["streamBars", "batchBars", "matched", "differences"]) d[key] += r[key];
+    days.set(r.day, d);
+  }
+  fillTable("#days", [...days.values()].slice(0, 14), (d) => [td(d.day),
+    td(`${d.hours} of 24`, `num${d.hours < 24 ? " warn" : ""}`), td(whole(d.streamBars), "num"),
+    td(whole(d.batchBars), "num"), td(whole(d.matched), "num"),
+    td(whole(d.differences), `num${d.differences > 0 ? " warn" : ""}`),
+    td(d.batchBars ? `${(100 * d.matched / d.batchBars).toFixed(2)}%` : "–", "num")], "no completed day yet");
+}
+
 async function refresh() {
   const pair = pairSelect.value;
   const jobs = [
@@ -173,6 +201,7 @@ async function refresh() {
     getJson("/api/reconciliation/differences?hours=24").then((rows) =>
       fillTable("#diffs", rows.filter((r) => r.classification !== "rounding").slice(0, 20), (r) => [td(hhmm(r.windowStart)), td(swatch(r.venue)), td(r.pair),
         td(r.field), td(plain(r.streamValue), "num"), td(plain(r.batchValue), "num"), td(r.classification)], "none")),
+    getJson("/api/reconciliation/daily?days=14").then(renderDays),
   ];
   await Promise.allSettled(jobs); // one failing section must not blank the others
 }

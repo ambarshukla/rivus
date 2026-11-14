@@ -68,10 +68,18 @@
           <th class="num">Batch bars</th><th class="num">Agree</th><th class="num">Differences</th></tr></thead>
         <tbody></tbody>
       </table>
-      <h3>Differences found</h3>
+      <h3>Differences found <span class="muted">(last 24 hours)</span></h3>
       <table id="diffs">
         <thead><tr><th>Bar (UTC)</th><th>Venue</th><th>Pair</th><th>Field</th><th class="num">Stream</th>
           <th class="num">Batch</th><th>Reason</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <dl id="reasons" class="reasons"></dl>
+      <h3>By day <span class="muted">(completed days, all venues and pairs)</span></h3>
+      <table id="days">
+        <thead><tr><th>Day (UTC)</th><th class="num">Hours checked</th><th class="num">Stream bars</th>
+          <th class="num">Batch bars</th><th class="num">Agree</th><th class="num">Differences</th>
+          <th class="num">Agree %</th></tr></thead>
         <tbody></tbody>
       </table>
     </section>

@@ -71,6 +71,15 @@ public sealed class FakeHistory : IHistoryStore
 
     public Task<IReadOnlyList<ReconDiff>> GetReconDiffsAsync(int hours, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<ReconDiff>>([]);
+
+    public int LastDays { get; private set; }
+
+    public Task<IReadOnlyList<ReconDay>> GetReconDaysAsync(int days, CancellationToken ct)
+    {
+        LastDays = days;
+        return Task.FromResult<IReadOnlyList<ReconDay>>(
+            [new ReconDay(new DateOnly(2026, 1, 1), "kraken", "BTC-USD", 24, 1440, 1440, 1439, 1)]);
+    }
 }
 
 public sealed class FakeLatest : ILatestStore
@@ -143,6 +152,19 @@ public sealed class ApiTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var response = await _client.GetAsync(url);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("", 14)]
+    [InlineData("?days=3", 3)]
+    [InlineData("?days=5000", 90)]
+    public async Task Daily_reconciliation_gives_one_row_per_day_venue_and_pair(string query, int daysAsked)
+    {
+        var rows = await _client.GetFromJsonAsync<JsonElement>("/api/reconciliation/daily" + query);
+
+        Assert.Equal(daysAsked, factory.History.LastDays);
+        Assert.Equal("2026-01-01", rows[0].GetProperty("day").GetString());
+        Assert.Equal(1439, rows[0].GetProperty("matched").GetInt64());
     }
 
     [Fact]
