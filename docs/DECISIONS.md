@@ -373,3 +373,22 @@ deleted (`BATCH_KEEP_HOURS`).
 a gigabyte a day, with nothing ever removing them. They are only needed to look into a
 difference by hand, which happens within a day or two. The results are in ClickHouse, and an
 hour can be rebuilt from Kafka for as long as the raw trades are kept (7 days).
+
+## 30. A deploy stops the jobs with a savepoint, and falls back if it does not fit
+
+**Chosen.** `scripts/deploy-flink.sh` builds the image, stops both jobs with a savepoint,
+restarts, and `flink/submit.sh` starts each job from its savepoint even though its SQL has
+changed. The job is then watched: if a task fails or the job is not fully running within 90
+seconds, it is cancelled and started with empty state, as before.
+
+**Lost.** Starting changed SQL with empty state every time (decision 10, the minute in flight
+comes out wrong); or restoring with "ignore state that cannot be restored", which never fails
+and can therefore silently drop state.
+
+**Why.** Most changes to a job leave its saved state usable: a comment, a filter, a new
+output column. Flink SQL promises nothing here, and a state that does not fit is discovered
+late: the job is accepted, a task then fails with `StateMigrationException` while loading,
+and the job restarts for ever. So the script does not predict whether state fits, it tries
+and looks. A savepoint is taken as the job stops, so its position in Kafka is also the
+committed one, and the fall-back continues from exactly there: the worst case equals the old
+behaviour. Tried both ways on the day (build log).

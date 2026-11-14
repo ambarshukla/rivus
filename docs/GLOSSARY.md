@@ -90,6 +90,9 @@ eventually collapsed into one. `FINAL` in a query forces the collapse at read ti
 
 **Retention.** How long (or how many bytes) Kafka keeps messages before deleting them.
 
+**Savepoint.** A checkpoint taken on purpose, usually as a job is stopped, in a format meant
+for starting a changed job from it. A checkpoint is automatic and meant for recovery.
+
 **Scrape.** Prometheus collecting numbers by requesting a service's `/metrics` page on a
 schedule.
 

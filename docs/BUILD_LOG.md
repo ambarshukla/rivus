@@ -326,3 +326,48 @@ and 8,615 of 8,616 bars agreeing: the same numbers as the table in ClickHouse.
 costs, every alert with its first action, where data stops, what is kept for how long, and
 what running on a laptop does. Each statement in it comes from something measured and
 recorded above; the commands were run against the stack on the day.
+
+## Deploying changed SQL without spoiling a minute (2026-11-14)
+
+**Built.** `flink/submit.sh` gains `stop` (stop every job with a savepoint, hold the loop) and
+`resume`, starts from a savepoint when one is waiting, and watches a job started from saved
+state until it has settled. `scripts/deploy-flink.sh` runs the whole deploy (decision 30).
+
+**Predicted.** A change that leaves the state's shape alone restores and no bar is wrong. A
+change to a decimal type inside an aggregate does not restore; unknown whether Flink refuses
+it at submission or fails later.
+
+**Verified by running it, on the live stack.**
+
+1. *State that fits.* A comment added to `tables.sql`, which changes both jobs' SQL. Stopped
+   at 23:20:21 UTC, both back by 23:21:55, both recorded as resumed. The eight minutes around
+   it, including 23:20 and 23:21 which were in flight, each agree with a rebuild from the
+   stored trades on all six bars (trades, volume, high, low, average price). No gap, no late
+   trade.
+2. *State that does not fit.* `DECIMAL(18, 8)` changed to `DECIMAL(20, 8)` in the 1-minute
+   average price, inside the running container only. Flink accepted the job; ten seconds
+   later a task failed with `StateMigrationException`. The script cancelled it and started
+   with empty state 23 seconds after the first attempt. Putting the SQL back did the same in
+   the other direction.
+
+3. *The script itself.* `scripts/deploy-flink.sh` was then run three times: with nothing
+   changed, and to deploy the two fixes below. The jobs were down 97 to 100 seconds each
+   time and came back from their savepoints.
+
+Afterwards every 1-minute bar from 23:17 to 23:38 was compared with a rebuild from the stored
+trades: of 22 minutes, 20 agree on all six bars, across four savepoint restarts and one stop
+of five and a half minutes. The two that differ are 23:25 and 23:26, the minutes of the second
+test, started with empty state on purpose.
+
+**Two faults found by running it.**
+
+- With nothing changed in `flink/`, the submit container is not replaced, so nothing
+  released the hold and the jobs stayed down for five and a half minutes (no bar was wrong:
+  they resumed from their savepoints). The deploy script now releases the hold itself.
+- A start that fell back to empty state was recorded with the wrong "down since" time,
+  because the savepoint it is read from had already been forgotten. Fixed in `submit.sh`;
+  the two rows of the test were corrected by hand in `rivus.job_starts` (to 23:25:39 and
+  23:26:31, the times in the log), so that the reconciliation labels those minutes "restart".
+
+**Not covered.** A job that restores but whose new SQL makes old state mean something else
+(for example a changed window size): Flink cannot detect that, and neither does the script.
