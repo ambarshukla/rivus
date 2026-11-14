@@ -319,3 +319,10 @@ differences table. No change to the stream or the batch.
 the endpoint returned 18 rows for three days, and the page, loaded in a headless browser,
 showed 12, 4 and 24 hours checked for 11 to 13 November with 4,010 of 4,016, 1,207 of 1,207
 and 8,615 of 8,616 bars agreeing: the same numbers as the table in ClickHouse.
+
+## A runbook (2026-11-14)
+
+**Written.** `docs/OPERATIONS.md`: a health check, what each kind of change restarts and
+costs, every alert with its first action, where data stops, what is kept for how long, and
+what running on a laptop does. Each statement in it comes from something measured and
+recorded above; the commands were run against the stack on the day.
