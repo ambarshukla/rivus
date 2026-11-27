@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1 BUILDX_NO_DEFAULT_ATTESTATIONS=1
 
 echo "stopping everything downstream of the raw topics"
-docker compose rm -sf flink-submit flink-taskmanager flink-jobmanager clickhouse latest > /dev/null
+docker compose rm -sf flink-submit flink-taskmanager flink-taskmanager-2 flink-jobmanager clickhouse latest > /dev/null
 docker volume rm -f rivus_clickhouse-data rivus_flink-state > /dev/null
 
 echo "deleting derived topics and consumer positions"
@@ -20,7 +20,9 @@ docker compose exec -T kafka bash -c '
     $B/kafka-topics.sh $S --delete --topic "$t" > /dev/null
   done
   sleep 3
-  for g in $($B/kafka-consumer-groups.sh $S --list | grep -E "^(rivus|clickhouse)-"); do
+  # Not rivus-archive: it reads the raw topics, which a replay does not touch,
+  # and starting it again from the beginning would write every message twice.
+  for g in $($B/kafka-consumer-groups.sh $S --list | grep -E "^(rivus|clickhouse)-" | grep -v "^rivus-archive$"); do
     $B/kafka-consumer-groups.sh $S --delete --group "$g" > /dev/null 2>&1 || true
   done'
 
