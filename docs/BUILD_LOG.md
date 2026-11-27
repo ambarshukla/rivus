@@ -468,7 +468,13 @@ partitions were added while the old collectors, which sent no key, were still ru
 they saw three partitions they spread each pair's messages over all three at random, the
 normalise job read the three in parallel, and trades reached the gap check out of order.
 `scripts/scale-kafka.sh` now restarts the collectors with keys before any partition is
-added. The hourly reconciliation of 12:00 is the check that nothing was lost.
+added. The hourly reconciliation of 12:00 is the check that nothing was lost, and it agrees:
+every 1-minute bar is in both the stream and the rebuild (120 = 120 per venue), and trade
+count, volume, high, low and average price match in every one. What differs is the opening
+or closing price of 11 bars between 12:37 and 12:39, 15 values in all: the first or last
+trade to *arrive* was not the first or last to happen, which is what reordering does. They
+are labelled "restart" because the jobs were down from 12:36:40, which is right about when
+and wrong about why.
 
 ## A second consumer group: the raw archive (2026-11-27)
 
