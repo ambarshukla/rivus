@@ -10,7 +10,8 @@ rule_files:
 scrape_configs:
   - job_name: collectors
     static_configs:
-      - targets: ["collector-coinbase:8000", "collector-kraken:8000", "collector-bitstamp:8000"]
+      - targets: ["collector-coinbase:8000", "collector-kraken:8000", "collector-bitstamp:8000",
+                  "collector-coinbase-b:8000", "collector-kraken-b:8000", "collector-bitstamp-b:8000"]
 
   - job_name: latest
     static_configs:

@@ -27,7 +27,8 @@ comparison.
 
 | Component | Does | State it keeps |
 |---|---|---|
-| `collector-<venue>` | one WebSocket per venue; copies every frame to Kafka unchanged | none |
+| `collector-<venue>` | one WebSocket per venue; copies every frame to Kafka unchanged, keyed by pair | none |
+| `collector-<venue>-b` | a spare connection per venue; copies trades only, to the same topics | none |
 | Kafka (`kafka`, `kafka-2`, `kafka-3`) | three brokers holding raw and derived topics, each partition on all three; `kafka` is also the only controller | topics (retention below) |
 | Flink `rivus-normalise` | maps venue formats to one trade and one quote schema; 3 parallel copies, one per partition | Kafka positions |
 | Flink `rivus-process` | removes duplicates; bars, late trades, gaps, venue check; 1 copy, because it depends on arrival order | open windows, trade ids seen (1 h), last id per pair |

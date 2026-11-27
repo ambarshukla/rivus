@@ -4,12 +4,17 @@
 # of how it was done and for anyone starting from an older volume.
 #
 #   1. start the two new brokers next to the first one
-#   2. stop the Flink jobs with savepoints, so they come back exactly where they were
-#   3. kafka-init: add partitions, copy every partition onto all three brokers
+#   2. restart the collectors with keys, while every topic still has one
+#      partition: a key changes nothing there, but from now on each pair has a
+#      fixed home once partitions are added. (On the day this came after step 4:
+#      for two minutes the old collectors, without keys, spread each pair over
+#      the new partitions at random, and the reordering showed up as false gaps.)
+#   3. stop the Flink jobs with savepoints, so they come back exactly where they were
+#   4. kafka-init: add partitions, copy every partition onto all three brokers
 #      (with the jobs stopped, they see the new partitions from their first second)
-#   4. rebuild and restart what changed: collectors (keys, broker list), Flink
-#      (second task manager), the batch, the latest-price writer
-#   5. Flink starts the jobs from their savepoints
+#   5. restart the rest of what changed: Flink (second task manager), the batch,
+#      the latest-price writer
+#   6. Flink starts the jobs from their savepoints
 #
 #   bash scripts/scale-kafka.sh
 set -euo pipefail
@@ -21,6 +26,9 @@ docker compose build
 
 echo "== starting kafka-2 and kafka-3"
 docker compose up -d --wait kafka-2 kafka-3
+
+echo "== collectors with keys, before any topic has a second partition"
+docker compose up -d --no-deps collector-coinbase collector-kraken collector-bitstamp
 
 echo "== stopping the jobs with savepoints"
 started=$(date -u +%FT%TZ)

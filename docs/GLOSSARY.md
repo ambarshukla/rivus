@@ -104,6 +104,9 @@ use: new copies catch up from the leader, then join the in-sync set.
 **Reconciliation.** Computing the same result two independent ways and explaining every
 difference.
 
+**Redundant feed.** Two independent connections receiving the same data, so that one can be
+lost without a gap; duplicates are removed downstream by a key both copies share.
+
 **ReplacingMergeTree.** A ClickHouse table type in which rows with the same key are
 eventually collapsed into one. `FINAL` in a query forces the collapse at read time.
 

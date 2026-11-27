@@ -447,3 +447,26 @@ collectors restart. Stopping `kafka-3`: its partitions get a new leader, nothing
 file cache, which Docker Desktop does not hand back to Windows by itself: Windows free memory
 fell to 1.1 GB until the cache was dropped (3.5 GB free after). See OPERATIONS, Kafka brokers.
 
+## A spare collector per venue (2026-11-27)
+
+**Built.** `collector-<venue>-b` for each venue (decision 34): its own connection, trades
+only (`FORWARD_KINDS=trades`), to the same topics, with a `collector` header (`a` or `b`) on
+every message. The trades-per-minute gauge now counts distinct trades. 45 collector tests
+(one new: a spare forwards only what it is told and still counts every frame in `seq`).
+
+**Predicted.** Restarting a venue's main collector while its spare runs leaves no gap. Every
+1-minute bar still counts each trade once.
+
+**Happened.** The spares started at 12:51:02; the main collectors were restarted at 12:51:22
+and again at 12:53:16. Gaps recorded after 12:42: none. For 12:53, each bar's trade count
+equals the number of distinct trade ids stored (coinbase BTC-USD 588 = 588, and so on for all
+six pairs). In the raw topic, 18 of 40 consecutive messages came from `b`.
+
+**False gaps from the move to three brokers.** From 12:37:23 to 12:41:19 the gap table has a
+few hundred rows, up to 692 "missing" trades each. They are not missing trades. The
+partitions were added while the old collectors, which sent no key, were still running; once
+they saw three partitions they spread each pair's messages over all three at random, the
+normalise job read the three in parallel, and trades reached the gap check out of order.
+`scripts/scale-kafka.sh` now restarts the collectors with keys before any partition is
+added. The hourly reconciliation of 12:00 is the check that nothing was lost.
+

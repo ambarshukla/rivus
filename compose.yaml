@@ -17,6 +17,7 @@ x-collector: &collector
   environment: &collector-env
     KAFKA_BOOTSTRAP: *bootstrap
     METRICS_PORT: "8000"
+    COLLECTOR_NAME: a
   depends_on:
     kafka-init:
       condition: service_completed_successfully
@@ -162,6 +163,28 @@ services:
 
   collector-bitstamp:
     <<: *collector
+    command: ["venues/bitstamp.yaml"]
+
+  # A spare per venue: its own connection, forwarding trades only, to the same
+  # topics. Each trade then reaches Kafka twice; the process job keeps the first
+  # copy (and ClickHouse and the batch drop the second by trade id). If one
+  # connection drops or one collector is restarted, the other's copy fills in.
+  collector-coinbase-b:
+    <<: *collector
+    environment: &spare-env
+      <<: *collector-env
+      COLLECTOR_NAME: b
+      FORWARD_KINDS: trades
+    command: ["venues/coinbase.yaml"]
+
+  collector-kraken-b:
+    <<: *collector
+    environment: *spare-env
+    command: ["venues/kraken.yaml"]
+
+  collector-bitstamp-b:
+    <<: *collector
+    environment: *spare-env
     command: ["venues/bitstamp.yaml"]
 
   # ------------------------------------------------------------------ process

@@ -448,3 +448,28 @@ With two pairs per venue, two of each topic's three partitions are busy (BTC-USD
 partition 0, ETH-USD to 2) and partition 1 is empty. A partition count only spreads load up
 to the number of distinct keys. Three partitions keep one leader per broker and room for a
 third pair.
+
+## 34. A spare collector per venue, trades only; the first copy wins
+
+**Chosen.** A second collector per venue (`collector-<venue>-b`) with its own connection,
+writing trades only to the same raw topics. Every trade then reaches Kafka twice; the
+process job keeps the first copy to arrive, ClickHouse keeps one row per trade id, and the
+batch keeps the first copy received. Each message says which collector sent it (header
+`collector`: `a` or `b`).
+
+**Lost.** One collector per venue, as before; a spare that forwards everything; picking one
+"live" collector and switching to the spare only when it fails.
+
+**Why.** A dropped connection or a restarted collector loses the trades sent while it is
+away, for good: the venues do not replay them. With two connections, a trade is lost only
+if both miss it. Writing both and removing duplicates by a natural key (the venue's trade
+id) needs no failover logic and no decision about which side is healthy; the duplicate
+filter already existed because Kraken replays its last trades on every connect. Book
+messages are not doubled: each is replaced by the next a moment later, and Bitstamp's are
+large.
+
+The gap check still compares trade ids in arrival order. With both copies complete that
+order is still the venue's order: each trade's first arrival is the earlier of two in-order
+streams, which is itself in order. Only when one collector misses trades *and* the other's
+copy of them arrives later than the next trade from the first does a gap appear that the
+other copy then fills; the reconciliation would show those trades as present.

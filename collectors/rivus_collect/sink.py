@@ -32,12 +32,12 @@ class KafkaSink:
     the client sends it. poll(0) hands back delivery results.
     """
 
-    def __init__(self, bootstrap: str, venue: str) -> None:
+    def __init__(self, bootstrap: str, venue: str, name: str = "") -> None:
         self._venue = venue
         self._producer = Producer(
             {
                 "bootstrap.servers": bootstrap,
-                "client.id": f"collector-{venue}",
+                "client.id": f"collector-{venue}" + (f"-{name}" if name else ""),
                 "enable.idempotence": True,  # no duplicates or reordering on retries
                 "acks": "all",
                 "linger.ms": 50,

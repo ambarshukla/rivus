@@ -86,7 +86,7 @@ public sealed class ClickHouseStore(HttpClient http, RivusSettings settings) : I
     /// </summary>
     public Task<IReadOnlyList<Stat>> GetStatsAsync(CancellationToken ct) =>
         QueryAsync<Stat>("""
-            SELECT 'trades_last_minute' AS metric, venue AS label, toFloat64(count()) AS value
+            SELECT 'trades_last_minute' AS metric, venue AS label, toFloat64(uniqExact(pair, trade_id)) AS value
               FROM rivus.trades WHERE event_time > now() - INTERVAL 1 MINUTE GROUP BY venue
             UNION ALL
             SELECT 'last_trade_age_seconds', venue, dateDiff('millisecond', max(event_time), now64(3)) / 1000

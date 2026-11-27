@@ -183,3 +183,26 @@ async def test_trades_and_book_are_keyed_by_pair_and_control_is_not():
         with pytest.raises(ConnectionClosed):
             await collector.session()
     assert sink.keys == ["BTC-USD", "ETH-USD", None, None]
+
+
+async def test_a_spare_forwards_only_what_it_is_told_and_names_itself():
+    frames = ['{"type":"trade","n":1}', '{"type":"quote"}',
+              '{"type":"heartbeat"}', '{"type":"trade","n":2}']
+
+    async def handler(ws):
+        await ws.recv()
+        for frame in frames:
+            await ws.send(frame)
+        await ws.close()
+
+    async with venue_server(handler) as port:
+        sink = ListSink()
+        collector = Collector(make_config(port), sink, forward=frozenset({"trades"}), name="b")
+        with pytest.raises(ConnectionClosed):
+            await collector.session()
+    assert [raw.decode() for _, raw, _, _ in sink.sent] == [frames[0], frames[3]]
+    headers = [h for _, _, h, _ in sink.sent]
+    assert all(h["collector"] == "b" for h in headers)
+    # seq still counts every frame received, so a reader can see what was skipped
+    assert [h["seq"] for h in headers] == ["0", "3"]
+

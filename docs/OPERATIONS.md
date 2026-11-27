@@ -8,7 +8,7 @@ run `export MSYS_NO_PATHCONV=1` first.
 
 | Look at | Healthy looks like |
 |---|---|
-| `docker compose ps` | 18 containers up; the three Kafka brokers, ClickHouse, Redis and the Flink JobManager "healthy" |
+| `docker compose ps` | 21 containers up; the three Kafka brokers, ClickHouse, Redis and the Flink JobManager "healthy" |
 | The page, <http://localhost:18080>, "Stream health" | every venue's newest trade a few seconds old; bar delay about 7 s |
 | Prometheus, <http://localhost:19090/alerts> | nothing firing (see the table below for the ones that fire for known reasons) |
 | Flink, <http://localhost:18081> | two jobs RUNNING: `rivus-normalise` and `rivus-process` |
@@ -50,7 +50,7 @@ bash scripts/deploy-flink.sh   # after changing anything in flink/: keeps the jo
 
 | You change | What restarts | What it costs |
 |---|---|---|
-| `collectors/` or a venue file | that venue's collector | the trades sent during the reconnect, a second or two; shown as a gap |
+| `collectors/` or a venue file | that venue's collectors | nothing if the spare (`-b`) stays up while the main one restarts: `docker compose up -d --no-deps collector-<venue>`, then the same for `collector-<venue>-b`. Restarting both at once loses a second or two of trades, shown as a gap |
 | `flink/sql/*.sql`, deployed with `scripts/deploy-flink.sh` | both jobs, from a savepoint | about 90 seconds of bars arrive late; none is wrong. If the saved state does not fit the new SQL the script says so and the next row applies |
 | `flink/sql/*.sql`, deployed with a plain rebuild | the changed job, **with empty state** | the minute in flight comes out wrong; the reconciliation labels it "restart" |
 | Nothing, but Flink restarts | both jobs, resumed from the last checkpoint | nothing |
@@ -82,7 +82,7 @@ nowhere (decision 25).
 | Alert | Means | First thing to do |
 |---|---|---|
 | `TargetDown` | a service does not answer Prometheus | `docker compose ps`, then that service's logs |
-| `CollectorDisconnected` | a collector has had no connection for 2 minutes | `docker compose logs --since 10m collector-<venue>`; it retries by itself, so check the network and the venue's status page |
+| `CollectorDisconnected` | a collector (main or spare: see the `instance` label) has had no connection for 2 minutes; the other one still covers the venue | `docker compose logs --since 10m collector-<venue>`; it retries by itself, so check the network and the venue's status page |
 | `VenueQuiet` | connected, but no trade for 15 minutes | usually the venue; compare with its own website |
 | `StreamJobMissing` | fewer than 2 Flink jobs | `docker compose logs --since 10m flink-submit`: it resubmits every 30 s and says why it cannot |
 | `StreamJobRestarting` | Flink restarted a job by itself | Flink UI, the job's Exceptions tab |

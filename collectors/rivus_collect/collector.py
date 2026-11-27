@@ -38,9 +38,17 @@ class Collector:
         sink: Sink,
         connect: Callable[..., Any] = ws_connect,
         sleep: Callable[[float], Any] = asyncio.sleep,
+        forward: frozenset[str] = frozenset(KINDS),
+        name: str = "",
     ) -> None:
         self.config = config
         self.sink = sink
+        # Which kinds of message go to Kafka. A spare collector forwards trades
+        # only: they are what a missed message would cost; book messages are
+        # replaced by the next one a moment later.
+        self.forward = forward
+        # Tells two collectors of one venue apart in each message's headers.
+        self.name = name
         self._connect = connect
         self._sleep = sleep
         self.sessions = 0
@@ -113,13 +121,19 @@ class Collector:
                 else:
                     raw, text = frame, frame.decode("utf-8", errors="replace")
                 kind, reconnect = cfg.classify(text)
-                self.sink.send(
-                    cfg.topic(kind),
-                    raw,
-                    {"venue": cfg.venue, "conn": conn, "seq": str(seq), "recv_ns": str(recv_ns)},
-                    recv_ns // 1_000_000,
-                    cfg.key(text) if kind != "control" else None,
-                )
+                if kind in self.forward:
+                    headers = {
+                        "venue": cfg.venue, "conn": conn, "seq": str(seq), "recv_ns": str(recv_ns)
+                    }
+                    if self.name:
+                        headers["collector"] = self.name
+                    self.sink.send(
+                        cfg.topic(kind),
+                        raw,
+                        headers,
+                        recv_ns // 1_000_000,
+                        cfg.key(text) if kind != "control" else None,
+                    )
                 seq += 1
                 metrics.MESSAGES.labels(cfg.venue, kind).inc()
                 metrics.BYTES.labels(cfg.venue, kind).inc(len(raw))
