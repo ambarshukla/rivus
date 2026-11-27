@@ -79,7 +79,10 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck: &kafka-health
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      # A port check, not a Kafka tool: every Kafka tool starts a Java process
+      # (about 2.4 s of CPU), and three brokers checked every 10 s kept almost a
+      # core busy. A broker only opens its client port once it is ready.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/9092'"]
       interval: 10s
       timeout: 10s
       retries: 12

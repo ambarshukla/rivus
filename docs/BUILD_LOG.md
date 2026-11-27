@@ -513,3 +513,19 @@ the cluster online with 3 brokers and 88 partitions, read-only, and all 11 consu
 with their lag. The two Flink groups show as `EMPTY`: Flink assigns partitions itself and
 only commits positions to the group. 390 MB of memory while running.
 
+
+## A cheaper Kafka healthcheck (2026-11-27)
+
+**Found.** With three brokers the laptop's fan ran non-stop. `docker stats` showed one broker
+at 200% CPU and the others idle, moving from broker to broker. Inside the container the
+process numbers were above 560,000: something started new processes all the time. It was the
+healthcheck, `kafka-broker-api-versions.sh` every 10 s, which starts a Java process costing
+about 2.4 s of CPU (measured: 2.08 s user, 0.36 s system). Three brokers made that about
+0.7 of a core, in bursts of two cores, three times what one broker cost.
+
+**Changed.** The healthcheck now only checks that the client port accepts a connection
+(`bash -c '</dev/tcp/127.0.0.1/9092'`). A broker opens that port only once it is ready to
+serve, and `kafka-init` describes the topics itself before changing anything.
+
+**Happened.** Brokers recreated one at a time (2 and 3, then 1): healthy within seconds, no
+under-replicated partitions, both Flink jobs kept running. The 200% bursts stopped.
