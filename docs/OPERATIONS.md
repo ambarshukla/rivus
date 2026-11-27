@@ -119,6 +119,11 @@ docker compose exec -T kafka /opt/kafka/bin/kafka-metadata-quorum.sh \
   --bootstrap-server localhost:9092 describe --status   # the controller
 ```
 
+**A web page.** `docker compose --profile tools up -d kafka-ui`, then <http://localhost:18090>:
+brokers, topics and their partitions, messages as they arrive, consumer groups and their lag.
+Read-only. About 400 MB; `docker compose stop kafka-ui` when done. The Flink groups show as
+"empty": Flink picks its partitions itself and only stores its positions in the group.
+
 | Broker lost | What happens | What to do |
 |---|---|---|
 | `kafka-2` or `kafka-3` | the partitions it led get a new leader within seconds; 2 copies stay in sync, so writes carry on. Measured: no restart, no delivery error, no missed trade | start it again: it catches up by itself (7 s after a 2-minute stop). Then move leadership back: `kafka-leader-election.sh --election-type preferred --all-topic-partitions` |

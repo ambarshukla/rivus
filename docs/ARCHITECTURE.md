@@ -121,3 +121,4 @@ must not see a duplicate before the background merge use `FINAL`.
 | 18123 | ClickHouse HTTP |
 | 16379 | Redis |
 | 19092, 19093, 19094 | Kafka brokers `kafka`, `kafka-2`, `kafka-3` |
+| 18090 | Kafka UI, only when started with the `tools` profile |

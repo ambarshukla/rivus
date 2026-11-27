@@ -498,3 +498,12 @@ group by an hour on one topic: that hour read again, the stream's own group unaf
   messages (12, 34 and 381) although no pair hashes to it: the messages the old collectors,
   without keys, scattered during the move.
 
+## A Kafka web page (2026-11-27)
+
+**Built.** `kafka-ui` in Compose under the `tools` profile, read-only (decision 36).
+
+**Happened.** Started with `docker compose --profile tools up -d kafka-ui`; its API reported
+the cluster online with 3 brokers and 88 partitions, read-only, and all 11 consumer groups
+with their lag. The two Flink groups show as `EMPTY`: Flink assigns partitions itself and
+only commits positions to the group. 390 MB of memory while running.
+

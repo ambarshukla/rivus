@@ -493,3 +493,15 @@ delivery, made exactly once by naming files after offsets). Automatic commits co
 position past messages still in memory and lose them on a crash. Kafka Connect does the same
 job in production, but is a JVM service of its own, too heavy for this laptop. The archive
 also outlives Kafka's retention: the hourly batch can only rebuild the last 7 days.
+
+## 36. A Kafka web page, read-only and off by default
+
+**Chosen.** Kafka UI (`kafbat/kafka-ui`) behind the Compose profile `tools`, read-only.
+
+**Lost.** Running it all the time; Redpanda Console or AKHQ, which do the same; only Kafka's
+command-line tools.
+
+**Why.** Kafka itself ships no web page, only command-line tools. A page makes partitions,
+leaders, copies and consumer-group lag visible at a glance, which helps when explaining the
+cluster. It takes about 400 MB, so it runs only when wanted, and read-only means nothing can
+be deleted or reset from it by a stray click.

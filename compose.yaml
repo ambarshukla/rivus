@@ -363,6 +363,26 @@ services:
     depends_on:
       - prometheus
 
+  # A web page for looking inside Kafka: brokers, topics and their partitions,
+  # messages as they arrive, consumer groups and their lag. Not part of the
+  # stack: start it when wanted, with
+  #   docker compose --profile tools up -d kafka-ui      (http://localhost:18090)
+  # Read-only, so nothing can be deleted or reset from the page.
+  kafka-ui:
+    profiles: ["tools"]
+    image: kafbat/kafka-ui:v1.4.2
+    environment:
+      KAFKA_CLUSTERS_0_NAME: rivus
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: *bootstrap
+      KAFKA_CLUSTERS_0_READONLY: "true"
+      DYNAMIC_CONFIG_ENABLED: "false"
+      JAVA_OPTS: -Xms128m -Xmx256m
+    ports:
+      - "127.0.0.1:18090:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   # ---------------------------------------------------------------- reconcile
   # Airflow in its single-container "standalone" form (scheduler, API server
   # and DAG processor together, SQLite for its own records). Enough for one
