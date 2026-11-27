@@ -95,6 +95,9 @@ public sealed class ClickHouseStore(HttpClient http, RivusSettings settings) : I
             SELECT 'last_bar_age_seconds', venue, dateDiff('millisecond', max(window_end), now64(3)) / 1000
               FROM rivus.bars_1s WHERE window_start > now() - INTERVAL 1 DAY GROUP BY venue
             UNION ALL
+            SELECT 'last_bar_1m_age_seconds', venue, dateDiff('millisecond', max(window_end), now64(3)) / 1000
+              FROM rivus.bars_1m WHERE window_start > now() - INTERVAL 1 DAY GROUP BY venue
+            UNION ALL
             SELECT 'bar_delay_seconds', venue, avg(dateDiff('millisecond', window_end, stored_at)) / 1000
               FROM rivus.bars_1s WHERE window_start > now() - INTERVAL 5 MINUTE GROUP BY venue
             UNION ALL

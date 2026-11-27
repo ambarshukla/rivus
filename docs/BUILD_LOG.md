@@ -371,3 +371,31 @@ test, started with empty state on purpose.
 
 **Not covered.** A job that restores but whose new SQL makes old state mean something else
 (for example a changed window size): Flink cannot detect that, and neither does the script.
+
+## A blind spot in the alerts, and 23 hours checked again (2026-11-27)
+
+**Found.** From 22 Nov 20:03 to 24 Nov 09:26 trades and 1-minute bars reached Kafka but were
+not stored in ClickHouse; every row of those 37 hours was stored at 09:26:08, when a restart
+started ClickHouse's readers again. Nothing was lost (Kafka keeps the topics for 7 days).
+1-second bars carried on the whole time, so `NoNewBars` never fired. The cause is not known:
+ClickHouse's error log has nothing at that time. A second, smaller case of a stuck position:
+on 26 Nov the Flink normalise job's saved Kafka offsets stopped moving for an hour while
+checkpoints completed and data was fresh; `ConsumerLagging` fired on a lag that was not real.
+
+**Built.** `TradesNotStored` and `MinuteBarsNotStored` (decision 31), a new gauge
+`rivus_last_bar_1m_age_seconds`, and a note in `ConsumerLagging` on what the Flink lag means.
+`promtool` tests replay the 22 Nov pattern: fresh 1-second bars, stale trades and 1-minute
+bars.
+
+**Predicted.** The tests: `TradesNotStored` pending at minute 9 and firing at minute 12;
+`MinuteBarsNotStored` firing at 14 with the bar 9.5 minutes old; `NoNewBars` silent. Live:
+the trade gauge a few seconds, the 1-minute gauge under 70 seconds.
+
+**Happened.** All alert tests pass. Live: `rivus_last_trade_age_seconds` 6 to 8 s,
+`rivus_last_bar_1m_age_seconds` 29 s, both rules loaded, nothing firing.
+
+**The stale hours checked again.** Hours 22 Nov 20:00 to 23 Nov 19:00 had been checked while
+their stream bars were missing (360 "unexplained" rows an hour). Re-running the batch for
+each of the 24 hours from the raw trades still in Kafka: 7,998 + 817 stream bars, every one
+matched, 4 rounding rows. The daily summaries for 22 and 23 Nov now show 0 differences.
+

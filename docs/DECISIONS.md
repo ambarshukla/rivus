@@ -392,3 +392,18 @@ and the job restarts for ever. So the script does not predict whether state fits
 and looks. A savepoint is taken as the job stops, so its position in Kafka is also the
 committed one, and the fall-back continues from exactly there: the worst case equals the old
 behaviour. Tried both ways on the day (build log).
+
+## 31. Every stored table gets its own freshness alert
+
+**Chosen.** Besides `NoNewBars` (1-second bars), `TradesNotStored` and `MinuteBarsNotStored`
+check how old the newest stored trade and 1-minute bar are. The API measures both in
+ClickHouse, like the other health gauges.
+
+**Lost.** One end-to-end check on the 1-second bars, as before; or alerts on ClickHouse's own
+Kafka reader metrics.
+
+**Why.** Each table is filled by its own reader in ClickHouse, and readers can stop one at a
+time: from 22 to 24 Nov 2026 trades and 1-minute bars stopped being stored for 37 hours while
+1-second bars carried on, and nothing fired. Measuring the age of the newest row checks what
+users actually read, whatever the cause; reader metrics would only cover one cause.
+

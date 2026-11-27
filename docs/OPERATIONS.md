@@ -87,11 +87,23 @@ nowhere (decision 25).
 | `StreamJobRestarting` | Flink restarted a job by itself | Flink UI, the job's Exceptions tab |
 | `CheckpointsStopped` | no completed checkpoint for 10 minutes | Flink UI, Checkpoints tab; a restart now would re-read more than usual |
 | `NoNewBars` | no new 1-second bar stored for 2 minutes | walk the pipeline (next section) |
-| `ConsumerLagging` | a consumer is more than 20,000 messages behind | which group? `rivus-*` is Flink, `clickhouse-*` is ClickHouse |
+| `TradesNotStored` | no new trade stored in ClickHouse for 3 minutes | if 1-second bars are fresh, ClickHouse's reader of the trade topics is stuck: `SELECT table, last_poll_time, last_commit_time, exceptions.text FROM system.kafka_consumers`. A restart of ClickHouse resumes it; nothing is lost while Kafka keeps the topic |
+| `MinuteBarsNotStored` | no new 1-minute bar stored for 5 minutes | the same check, for `bars_1m_queue` |
+| `ConsumerLagging` | a consumer is more than 20,000 messages behind | which group? `rivus-*` is Flink, `clickhouse-*` is ClickHouse. For Flink it is the position saved with each checkpoint: if bars are fresh and checkpoints complete, only the saved position is stuck, and a job restart clears it |
 | `HealthQueryFailing` | the API cannot query ClickHouse | `docker compose logs --since 10m api clickhouse` |
 | `TradesMissed` | a sequence gap in the last hour | expected after a dropped connection or a collector restart; clears after an hour |
 | `ReconciliationDifferences` | a bar differed from the batch rebuild in the last 24 hours | the page lists each with its reason. "restart" after a deploy is expected; "unexplained" is worth an hour of your time |
 | `ReconciliationStale` | no hour reconciled for 3 hours | Airflow, <http://localhost:18082>, DAG `reconcile_hourly` |
+
+**Re-checking past hours.** An hour checked while its stream bars were held up is recorded as
+"unexplained, bar missing". Once the bars are stored, check it again (raw trades are kept for
+7 days), then redo the day's summary:
+
+```sh
+B="cd /opt/rivus && /home/airflow/batch-venv/bin/python -m rivus_batch"
+docker compose exec -T airflow bash -c "$B all --hour 2026-11-23T17:00:00"
+docker compose exec -T airflow bash -c "$B rollup --day 2026-11-23"
+```
 
 ## Finding where data stops
 
