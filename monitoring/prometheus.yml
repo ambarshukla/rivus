@@ -18,7 +18,7 @@ scrape_configs:
 
   - job_name: flink
     static_configs:
-      - targets: ["flink-jobmanager:9249", "flink-taskmanager:9249"]
+      - targets: ["flink-jobmanager:9249", "flink-taskmanager:9249", "flink-taskmanager-2:9249"]
 
   # Stream health (gaps, late trades, bar delay, reconciliation) measured in
   # ClickHouse by the API service, plus the API's own request metrics.

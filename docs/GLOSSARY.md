@@ -1,11 +1,11 @@
 # Glossary
 
+**Airflow.** A scheduler for batch work: it runs tasks at set times, in a set order, retries
+failures and keeps a history of every run.
+
 **Alert rule.** A query Prometheus runs on a schedule that should return nothing. While it
 returns something the alert is *pending*; once that has lasted for the rule's `for` time it
 is *firing*.
-
-**Airflow.** A scheduler for batch work: it runs tasks at set times, in a set order, retries
-failures and keeps a history of every run.
 
 **Backoff.** Waiting longer after each failed attempt (here 1 second doubling to 60) so a
 struggling server is not hammered. *Jitter* is a random factor on the wait so that several
@@ -29,6 +29,10 @@ Kafka.
 
 **Control message.** Anything from a venue that is not a trade or a book update: heartbeats,
 replies to subscriptions, status notices.
+
+**Controller (Kafka).** The node that keeps the cluster's metadata (topics, partitions, who
+leads each) and moves leadership when a broker goes. Here one node is both a broker and the
+only controller.
 
 **DAG.** Directed acyclic graph: Airflow's word for a set of tasks and the order they must
 run in.
@@ -54,10 +58,18 @@ messages to everyone connected to it.
 **Idempotent producer.** A Kafka client setting that lets the broker discard a message it has
 already stored, so a retry after a network error cannot create a duplicate or reorder.
 
+**In-sync replicas (ISR).** The copies of a partition that are up to date with its leader.
+With `min.insync.replicas=2` and `acks=all`, a write succeeds only once at least two copies
+have it; with fewer than two in sync, writes are refused rather than risked.
+
 **KRaft.** Kafka's built-in way of running its own cluster metadata, replacing ZooKeeper.
 
 **Late event.** A message that arrives after the watermark has passed its event time. Its
 window may already have been emitted without it.
+
+**Leader (partition).** The one broker that takes writes and serves reads for a partition;
+the other copies follow it. Each partition has a *preferred* leader, the first broker in its
+list, so leadership can be spread evenly.
 
 **Maker / taker.** The maker's order was resting in the book; the taker's order arrived and
 matched it. A trade's "side" here is always the taker's.
@@ -69,9 +81,16 @@ transformed and inserted into another.
 
 **Pair.** Two currencies traded against each other, such as BTC-USD.
 
+**Parallelism (Flink).** How many copies of each step of a job run side by side, each on its
+own share of the data. Each copy needs a *slot* on a task manager.
+
 **Part.** In ClickHouse, the files written by one insert into a table. Background **merges**
 combine small parts into larger ones, rewriting their rows; many small inserts therefore cost
 far more disk writes than the data itself.
+
+**Partition key.** A value sent with each Kafka message (here the pair). The producer hashes
+it to choose the partition, so messages with the same key always share a partition and stay
+in order.
 
 **Partition.** An ordered log inside a Kafka topic. Order is guaranteed within a partition,
 not across partitions.
@@ -79,14 +98,20 @@ not across partitions.
 **Publish/subscribe.** A sender posts messages to a named channel without knowing who is
 listening; every current listener gets a copy. Nothing is stored.
 
+**Reassignment (Kafka).** Changing which brokers hold a partition's copies while it is in
+use: new copies catch up from the leader, then join the in-sync set.
+
 **Reconciliation.** Computing the same result two independent ways and explaining every
 difference.
 
-**Restart (classification).** The reason given to a differing bar whose minute falls while a
-stream job was out of action: between its last checkpoint and the start of its replacement.
-
 **ReplacingMergeTree.** A ClickHouse table type in which rows with the same key are
 eventually collapsed into one. `FINAL` in a query forces the collapse at read time.
+
+**Replication factor.** How many brokers store each partition. Three means two can be lost
+before data is.
+
+**Restart (classification).** The reason given to a differing bar whose minute falls while a
+stream job was out of action: between its last checkpoint and the start of its replacement.
 
 **Retention.** How long (or how many bytes) Kafka keeps messages before deleting them.
 
@@ -103,6 +128,9 @@ WebSocket, with fallbacks and automatic reconnection.
 
 **State.** What a streaming job must remember between messages: open windows, trade ids
 already seen, the previous id per pair.
+
+**Task manager.** A Flink worker process. It offers a number of slots, and the job manager
+places the copies of each job's steps in them.
 
 **Topic.** A named stream of messages in Kafka.
 

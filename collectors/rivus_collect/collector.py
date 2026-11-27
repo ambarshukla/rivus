@@ -118,6 +118,7 @@ class Collector:
                     raw,
                     {"venue": cfg.venue, "conn": conn, "seq": str(seq), "recv_ns": str(recv_ns)},
                     recv_ns // 1_000_000,
+                    cfg.key(text) if kind != "control" else None,
                 )
                 seq += 1
                 metrics.MESSAGES.labels(cfg.venue, kind).inc()

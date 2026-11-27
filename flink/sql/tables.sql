@@ -15,6 +15,8 @@ SET 'table.exec.state.ttl' = '1 h';
 -- ============================================================ raw sources
 -- The JSON format picks the named fields out of each raw message and ignores
 -- the rest. recv_time is the Kafka record timestamp set by the collector.
+-- Topics written per pair have 3 partitions. A source checks for partitions
+-- it has not seen every 30 seconds and reads a new one from its start.
 
 CREATE TABLE raw_coinbase_trades (
   `type`     STRING,
@@ -27,8 +29,8 @@ CREATE TABLE raw_coinbase_trades (
   recv_time  TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
 ) WITH (
   'connector' = 'kafka', 'topic' = 'raw.coinbase.trades',
-  'properties.bootstrap.servers' = 'kafka:9092', 'properties.group.id' = 'rivus-normalise',
-  'scan.startup.mode' = 'group-offsets', 'properties.auto.offset.reset' = 'earliest',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092', 'properties.group.id' = 'rivus-normalise',
+  'scan.startup.mode' = 'group-offsets', 'scan.topic-partition-discovery.interval' = '30 s', 'properties.auto.offset.reset' = 'earliest',
   'format' = 'json', 'json.ignore-parse-errors' = 'true'
 );
 
@@ -43,8 +45,8 @@ CREATE TABLE raw_coinbase_book (
   recv_time     TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
 ) WITH (
   'connector' = 'kafka', 'topic' = 'raw.coinbase.book',
-  'properties.bootstrap.servers' = 'kafka:9092', 'properties.group.id' = 'rivus-normalise',
-  'scan.startup.mode' = 'group-offsets', 'properties.auto.offset.reset' = 'earliest',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092', 'properties.group.id' = 'rivus-normalise',
+  'scan.startup.mode' = 'group-offsets', 'scan.topic-partition-discovery.interval' = '30 s', 'properties.auto.offset.reset' = 'earliest',
   'format' = 'json', 'json.ignore-parse-errors' = 'true'
 );
 
@@ -57,8 +59,8 @@ CREATE TABLE raw_kraken_trades (
   recv_time TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
 ) WITH (
   'connector' = 'kafka', 'topic' = 'raw.kraken.trades',
-  'properties.bootstrap.servers' = 'kafka:9092', 'properties.group.id' = 'rivus-normalise',
-  'scan.startup.mode' = 'group-offsets', 'properties.auto.offset.reset' = 'earliest',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092', 'properties.group.id' = 'rivus-normalise',
+  'scan.startup.mode' = 'group-offsets', 'scan.topic-partition-discovery.interval' = '30 s', 'properties.auto.offset.reset' = 'earliest',
   'format' = 'json', 'json.ignore-parse-errors' = 'true'
 );
 
@@ -69,8 +71,8 @@ CREATE TABLE raw_kraken_book (
   recv_time TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
 ) WITH (
   'connector' = 'kafka', 'topic' = 'raw.kraken.book',
-  'properties.bootstrap.servers' = 'kafka:9092', 'properties.group.id' = 'rivus-normalise',
-  'scan.startup.mode' = 'group-offsets', 'properties.auto.offset.reset' = 'earliest',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092', 'properties.group.id' = 'rivus-normalise',
+  'scan.startup.mode' = 'group-offsets', 'scan.topic-partition-discovery.interval' = '30 s', 'properties.auto.offset.reset' = 'earliest',
   'format' = 'json', 'json.ignore-parse-errors' = 'true'
 );
 
@@ -81,8 +83,8 @@ CREATE TABLE raw_bitstamp_trades (
   recv_time TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
 ) WITH (
   'connector' = 'kafka', 'topic' = 'raw.bitstamp.trades',
-  'properties.bootstrap.servers' = 'kafka:9092', 'properties.group.id' = 'rivus-normalise',
-  'scan.startup.mode' = 'group-offsets', 'properties.auto.offset.reset' = 'earliest',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092', 'properties.group.id' = 'rivus-normalise',
+  'scan.startup.mode' = 'group-offsets', 'scan.topic-partition-discovery.interval' = '30 s', 'properties.auto.offset.reset' = 'earliest',
   'format' = 'json', 'json.ignore-parse-errors' = 'true'
 );
 
@@ -94,14 +96,16 @@ CREATE TABLE raw_bitstamp_book (
   recv_time TIMESTAMP_LTZ(3) METADATA FROM 'timestamp' VIRTUAL
 ) WITH (
   'connector' = 'kafka', 'topic' = 'raw.bitstamp.book',
-  'properties.bootstrap.servers' = 'kafka:9092', 'properties.group.id' = 'rivus-normalise',
-  'scan.startup.mode' = 'group-offsets', 'properties.auto.offset.reset' = 'earliest',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092', 'properties.group.id' = 'rivus-normalise',
+  'scan.startup.mode' = 'group-offsets', 'scan.topic-partition-discovery.interval' = '30 s', 'properties.auto.offset.reset' = 'earliest',
   'format' = 'json', 'json.ignore-parse-errors' = 'true'
 );
 
 -- ===================================================== normalised topics
 -- Written by the normalise job, read by the process job, ClickHouse and the
--- latest-price writer. All times are UTC.
+-- latest-price writer. All times are UTC. Trades and quotes are written with
+-- the pair as the Kafka key ('key.fields'), which picks the partition: one pair,
+-- one partition, in order. The key is a copy; the value still holds every column.
 
 CREATE TABLE trades (
   venue      STRING,
@@ -118,8 +122,8 @@ CREATE TABLE trades (
   WATERMARK FOR event_time AS event_time - INTERVAL '2' SECOND
 ) WITH (
   'connector' = 'kafka', 'topic-pattern' = 'rivus\.trades\..*',
-  'properties.bootstrap.servers' = 'kafka:9092', 'properties.group.id' = 'rivus-process',
-  'scan.startup.mode' = 'group-offsets', 'properties.auto.offset.reset' = 'earliest',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092', 'properties.group.id' = 'rivus-process',
+  'scan.startup.mode' = 'group-offsets', 'scan.topic-partition-discovery.interval' = '30 s', 'properties.auto.offset.reset' = 'earliest',
   -- A venue with no trades for 2 seconds stops holding the watermark back.
   'scan.watermark.idle-timeout' = '2 s',
   'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
@@ -127,20 +131,23 @@ CREATE TABLE trades (
 
 CREATE TABLE trades_out_coinbase WITH (
   'connector' = 'kafka', 'topic' = 'rivus.trades.coinbase',
-  'properties.bootstrap.servers' = 'kafka:9092',
-  'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
+  'key.format' = 'raw', 'key.fields' = 'pair',
+  'value.format' = 'json', 'value.json.encode.decimal-as-plain-number' = 'true'
 ) LIKE trades (EXCLUDING OPTIONS EXCLUDING WATERMARKS);
 
 CREATE TABLE trades_out_kraken WITH (
   'connector' = 'kafka', 'topic' = 'rivus.trades.kraken',
-  'properties.bootstrap.servers' = 'kafka:9092',
-  'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
+  'key.format' = 'raw', 'key.fields' = 'pair',
+  'value.format' = 'json', 'value.json.encode.decimal-as-plain-number' = 'true'
 ) LIKE trades (EXCLUDING OPTIONS EXCLUDING WATERMARKS);
 
 CREATE TABLE trades_out_bitstamp WITH (
   'connector' = 'kafka', 'topic' = 'rivus.trades.bitstamp',
-  'properties.bootstrap.servers' = 'kafka:9092',
-  'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
+  'key.format' = 'raw', 'key.fields' = 'pair',
+  'value.format' = 'json', 'value.json.encode.decimal-as-plain-number' = 'true'
 ) LIKE trades (EXCLUDING OPTIONS EXCLUDING WATERMARKS);
 
 CREATE TABLE quotes (
@@ -154,8 +161,9 @@ CREATE TABLE quotes (
   recv_time  TIMESTAMP(3)
 ) WITH (
   'connector' = 'kafka', 'topic' = 'rivus.quotes',
-  'properties.bootstrap.servers' = 'kafka:9092',
-  'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
+  'key.format' = 'raw', 'key.fields' = 'pair',
+  'value.format' = 'json', 'value.json.encode.decimal-as-plain-number' = 'true'
 );
 
 -- ========================================================= derived topics
@@ -176,7 +184,7 @@ CREATE TABLE bars_1s (
   last_trade_id  BIGINT
 ) WITH (
   'connector' = 'kafka', 'topic' = 'rivus.bars_1s',
-  'properties.bootstrap.servers' = 'kafka:9092',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
   'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
 );
 
@@ -195,7 +203,7 @@ CREATE TABLE late_trades (
   missed_1m      BOOLEAN        -- its 1-minute bar had already been emitted
 ) WITH (
   'connector' = 'kafka', 'topic' = 'rivus.late_trades',
-  'properties.bootstrap.servers' = 'kafka:9092',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
   'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
 );
 
@@ -209,7 +217,7 @@ CREATE TABLE gaps (
   detected_at   TIMESTAMP(3)
 ) WITH (
   'connector' = 'kafka', 'topic' = 'rivus.gaps',
-  'properties.bootstrap.servers' = 'kafka:9092',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
   'format' = 'json'
 );
 
@@ -224,6 +232,6 @@ CREATE TABLE venue_checks (
   detail       STRING           -- 'venue=vwap' for each venue
 ) WITH (
   'connector' = 'kafka', 'topic' = 'rivus.venue_checks',
-  'properties.bootstrap.servers' = 'kafka:9092',
+  'properties.bootstrap.servers' = 'kafka:9092,kafka-2:9092,kafka-3:9092',
   'format' = 'json', 'json.encode.decimal-as-plain-number' = 'true'
 );

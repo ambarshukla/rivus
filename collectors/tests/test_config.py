@@ -70,3 +70,40 @@ def test_bad_configs_are_rejected(change, message):
 def test_missing_key_is_rejected():
     with pytest.raises(ValueError, match="missing 'url'"):
         parse_config({k: v for k, v in BASE.items() if k != "url"})
+
+
+@pytest.mark.parametrize("venue", VENUES)
+@pytest.mark.parametrize("kind", ["trades", "book"])
+def test_captured_messages_are_keyed_by_pair(venue, kind):
+    config = load_config(ROOT / "venues" / f"{venue}.yaml")
+    lines = (ROOT / "tests" / "fixtures" / venue / f"{kind}.jsonl").read_text("utf-8").splitlines()
+    keys = {config.key(line) for line in lines}
+    assert keys <= {"BTC-USD", "ETH-USD"}, keys
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ('{"data":[{"symbol":"BTC/USD"}]}', "BTC-USD"),
+        ('{"data":[{"symbol":"SOL/USD"}]}', None),  # not in the list: no key
+        ('{"data":[]}', None),
+        ('{"data":"x"}', None),
+        ("{broken", None),
+    ],
+)
+def test_key_follows_the_path(raw, expected):
+    key = {"path": "data.0.symbol", "pairs": {"BTC/USD": "BTC-USD"}}
+    config = parse_config({**BASE, "key": key})
+    assert config.key(raw) == expected
+
+
+def test_key_without_pairs_uses_the_value():
+    config = parse_config({**BASE, "key": {"path": "product_id"}})
+    assert config.key('{"product_id":"BTC-USD"}') == "BTC-USD"
+    assert parse_config(BASE).key('{"product_id":"BTC-USD"}') is None
+
+
+def test_pairs_without_path_are_rejected():
+    with pytest.raises(ValueError, match="key.pairs needs key.path"):
+        parse_config({**BASE, "key": {"pairs": {"a": "b"}}})
+

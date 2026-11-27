@@ -6,12 +6,16 @@ name: rivus
 # Without that variable every build gets a new image id even when nothing
 # changed, so every container is restarted, and a restarted collector means
 # missed trades. A plain "docker compose up -d" never restarts anything.
+# Every client is given all three brokers: any one that answers tells it
+# where the rest are, so a client can start while one broker is down.
+x-bootstrap: &bootstrap kafka:9092,kafka-2:9092,kafka-3:9092
+
 x-collector: &collector
   image: rivus-collector
   pull_policy: never
   restart: unless-stopped
   environment: &collector-env
-    KAFKA_BOOTSTRAP: kafka:9092
+    KAFKA_BOOTSTRAP: *bootstrap
     METRICS_PORT: "8000"
   depends_on:
     kafka-init:
@@ -26,8 +30,15 @@ x-flink: &flink
       jobmanager.rpc.address: flink-jobmanager
       rest.address: flink-jobmanager
       jobmanager.memory.process.size: 1024m
-      taskmanager.memory.process.size: 2048m
+      # Two task managers of 4 slots each. The jobs need 4 slots in all
+      # (normalise 3, process 1), so either task manager can take everything
+      # when the other is lost. Managed memory is for the RocksDB state
+      # backend; with the hashmap backend it would sit unused, so keep it small.
+      taskmanager.memory.process.size: 1280m
+      taskmanager.memory.managed.fraction: 0.05
       taskmanager.numberOfTaskSlots: 4
+      # Spread a job's slots over both task managers instead of filling one first.
+      taskmanager.load-balance.mode: SLOTS
       parallelism.default: 1
       execution.checkpointing.interval: 30s
       execution.checkpointing.dir: file:///flink-state/checkpoints
@@ -66,23 +77,72 @@ services:
       - "127.0.0.1:19092:19092"
     volumes:
       - kafka-data:/var/lib/kafka/data
-    healthcheck:
+    healthcheck: &kafka-health
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 10s
       timeout: 10s
       retries: 12
       start_period: 20s
 
+  # Two more brokers. The first one ("kafka") is also the cluster's only
+  # controller, the node that keeps the cluster's metadata and decides which
+  # broker leads each partition. Losing kafka-2 or kafka-3 is survived; losing
+  # "kafka" leaves the partitions it leads without a leader until it is back.
+  # A cluster built from scratch would run three controllers (docs/DECISIONS.md, 32).
+  kafka-2: &kafka-broker
+    image: apache/kafka:4.1.0
+    restart: unless-stopped
+    environment: &kafka-broker-env
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker
+      # Must match the cluster id the first node was formatted with (the image's default).
+      CLUSTER_ID: 5L6g3nShT-eMCtK--X86sw
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:19093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,EXTERNAL://localhost:19093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 60000
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:19093:19093"
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck: *kafka-health
+
+  kafka-3:
+    <<: *kafka-broker
+    environment:
+      <<: *kafka-broker-env
+      KAFKA_NODE_ID: 3
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:19094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092,EXTERNAL://localhost:19094
+    ports:
+      - "127.0.0.1:19094:19094"
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+
   kafka-init:
     image: apache/kafka:4.1.0
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
     volumes:
       - ./infra/kafka/create-topics.sh:/create-topics.sh:ro
     entrypoint: ["/bin/bash", "/create-topics.sh"]
     environment:
-      BOOTSTRAP: kafka:9092
+      BOOTSTRAP: *bootstrap
+      BROKERS: 1 2 3
       VENUES: coinbase kraken bitstamp
 
   # --------------------------------------------------------------- collectors
@@ -123,6 +183,13 @@ services:
       start_period: 20s
 
   flink-taskmanager:
+    <<: *flink
+    command: taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+
+  flink-taskmanager-2:
     <<: *flink
     command: taskmanager
     depends_on:
@@ -185,7 +252,7 @@ services:
     image: rivus-latest
     restart: unless-stopped
     environment:
-      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_BOOTSTRAP: *bootstrap
       REDIS_HOST: redis
       METRICS_PORT: "8000"
     depends_on:
@@ -218,7 +285,7 @@ services:
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.9.0
     restart: unless-stopped
-    command: ["--kafka.server=kafka:9092"]
+    command: ["--kafka.server=kafka:9092", "--kafka.server=kafka-2:9092", "--kafka.server=kafka-3:9092"]
     depends_on:
       kafka:
         condition: service_healthy
@@ -268,7 +335,7 @@ services:
       AIRFLOW__CORE__DAGS_FOLDER: /opt/rivus/dags
       # Local only (port bound to 127.0.0.1): no login.
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
-      KAFKA_BOOTSTRAP: kafka:9092
+      KAFKA_BOOTSTRAP: *bootstrap
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_USER: rivus
       CLICKHOUSE_PASSWORD: rivus
@@ -335,6 +402,8 @@ services:
 
 volumes:
   kafka-data:
+  kafka-2-data:
+  kafka-3-data:
   flink-state:
   clickhouse-data:
   prometheus-data:

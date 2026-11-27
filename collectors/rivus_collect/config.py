@@ -22,6 +22,11 @@ class VenueConfig:
     reconnect_on: frozenset[str] = frozenset()
     stale_after_seconds: float = 15.0
     ws_ping_seconds: float | None = 20.0
+    # Where the pair is in a message, and how the venue spells each pair. The
+    # pair becomes the Kafka key, so all of a pair's messages go to one
+    # partition and stay in order. Messages without a known pair get no key.
+    key_path: tuple[str, ...] = ()
+    pair_by_value: dict[str, str] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
     def topic(self, kind: str) -> str:
@@ -44,6 +49,31 @@ class VenueConfig:
             return "control", False
         return self.kind_by_value.get(value, "control"), value in self.reconnect_on
 
+    def key(self, raw: str) -> str | None:
+        """The pair a message is about, as BTC-USD, or None.
+
+        key_path is a list of steps: a name looks up a field, a number picks an
+        element of a list (Kraken puts its trades in data[0], data[1]...).
+        """
+        if not self.key_path:
+            return None
+        try:
+            value: Any = json.loads(raw)
+        except ValueError:
+            return None
+        for step in self.key_path:
+            if isinstance(value, dict):
+                value = value.get(step)
+            elif isinstance(value, list) and step.isdigit() and int(step) < len(value):
+                value = value[int(step)]
+            else:
+                return None
+        if not isinstance(value, str):
+            return None
+        if not self.pair_by_value:
+            return value
+        return self.pair_by_value.get(value)
+
 
 def parse_config(data: dict[str, Any]) -> VenueConfig:
     for key in ("venue", "url", "subscribe", "classify"):
@@ -63,6 +93,11 @@ def parse_config(data: dict[str, Any]) -> VenueConfig:
             kind_by_value[value] = kind
     if not str(data["url"]).startswith("wss://"):
         raise ValueError("url must start with wss://")
+    key = dict(data.get("key", {}))
+    key_path = tuple(str(step) for step in str(key.get("path", "")).split(".") if step)
+    pair_by_value = {str(k): str(v) for k, v in dict(key.get("pairs", {})).items()}
+    if pair_by_value and not key_path:
+        raise ValueError("key.pairs needs key.path")
     return VenueConfig(
         venue=str(data["venue"]),
         url=str(data["url"]),
@@ -72,6 +107,8 @@ def parse_config(data: dict[str, Any]) -> VenueConfig:
         reconnect_on=frozenset(data.get("reconnect_on", [])),
         stale_after_seconds=float(data.get("stale_after_seconds", 15)),
         ws_ping_seconds=data.get("ws_ping_seconds", 20.0),
+        key_path=key_path,
+        pair_by_value=pair_by_value,
     )
 
 

@@ -399,3 +399,51 @@ their stream bars were missing (360 "unexplained" rows an hour). Re-running the 
 each of the 24 hours from the raw trades still in Kafka: 7,998 + 817 stream bars, every one
 matched, 4 rounding rows. The daily summaries for 22 and 23 Nov now show 0 differences.
 
+## Three brokers, keyed partitions, two task managers (2026-11-27)
+
+**Built.** Two more Kafka brokers next to the first (decision 32); every partition copied
+onto all three, `min.insync.replicas=2`. The raw trade and book topics, the normalised trade
+topics and the quotes topic now have 3 partitions keyed by pair (decision 33): the
+collectors read the pair out of each message (a `key` block in each venue file) and hash it
+the way Java clients do; Flink writes the pair as the key of every normalised trade and
+quote. The normalise job runs 3 copies over two task managers of 1.25 GB each, replacing one
+of 2 GB; the process job stays at 1. The batch export reads every partition of a topic.
+`create-topics.sh` now brings existing topics up to what it describes, and runs one Kafka
+command when nothing differs (it runs before the collectors on every start).
+`scripts/scale-kafka.sh` did the move on the running stack.
+
+**Predicted.** BTC-USD in partition 0 and ETH-USD in 2 of every keyed topic (worked out from
+Kafka's hash), partition 1 empty. Copying 4.8 GB onto two brokers in a few minutes. Both jobs
+back from their savepoints, no wrong bars, a second or two of missed trades when the
+collectors restart. Stopping `kafka-3`: its partitions get a new leader, nothing stops.
+
+**Happened.**
+
+- *The move.* Jobs stopped with savepoints at 12:36:40; 12 topics went from 1 to 3
+  partitions; 88 partitions (50 of them Kafka's own `__consumer_offsets`) were copied in
+  about two minutes. Both jobs were back by 12:42:02, from their savepoints
+  (`job_starts.resumed = true`), the normalise job at its new parallelism.
+- *Where the keys went.* Over 20 seconds: `raw.coinbase.trades` partition 0 +161, partition 1
+  +0, partition 2 +42, and `rivus.trades.coinbase` exactly the same, so the Python collectors
+  and Flink put each pair in the same partition. A message read from partition 2 of
+  `rivus.trades.kraken` had the key `ETH-USD`.
+- *Slots.* Each task manager runs 2 of the 4 busy slots.
+- *Losing a broker.* `kafka-3` stopped at 12:44:29 for two minutes. Partition 2 of
+  `raw.coinbase.trades`, which it led, was led by broker 1 within 15 seconds with copies on
+  1 and 2. During the stop: trades of all six pairs stored, 1-minute bars on time, no job
+  restart, no delivery error. Started again, it was back in sync 7 seconds later.
+
+**Two faults found by running it.**
+
+- `docker compose up` runs `kafka-init` again before the collectors every time. The first
+  version made three Kafka calls per topic, about 25 seconds a topic, which would have held
+  the collectors back for minutes on every start. It now describes everything once and acts
+  only on differences: a few seconds when nothing has changed.
+- Editing `create-topics.sh` while a run was reading it (it is mounted, and bash reads a
+  script as it goes) broke that run, and `docker compose up` refused to start what depends
+  on it. Rerunning was enough; the lesson is not to edit a mounted script mid-run.
+
+**Memory.** Inside the Docker VM, use went from 6.3 to 7.3 GB. The copy also filled the
+file cache, which Docker Desktop does not hand back to Windows by itself: Windows free memory
+fell to 1.1 GB until the cache was dropped (3.5 GB free after). See OPERATIONS, Kafka brokers.
+

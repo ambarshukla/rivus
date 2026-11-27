@@ -8,7 +8,7 @@ run `export MSYS_NO_PATHCONV=1` first.
 
 | Look at | Healthy looks like |
 |---|---|
-| `docker compose ps` | 15 containers up; Kafka, ClickHouse, Redis and the Flink JobManager "healthy" |
+| `docker compose ps` | 18 containers up; the three Kafka brokers, ClickHouse, Redis and the Flink JobManager "healthy" |
 | The page, <http://localhost:18080>, "Stream health" | every venue's newest trade a few seconds old; bar delay about 7 s |
 | Prometheus, <http://localhost:19090/alerts> | nothing firing (see the table below for the ones that fire for known reasons) |
 | Flink, <http://localhost:18081> | two jobs RUNNING: `rivus-normalise` and `rivus-process` |
@@ -54,6 +54,7 @@ bash scripts/deploy-flink.sh   # after changing anything in flink/: keeps the jo
 | `flink/sql/*.sql`, deployed with `scripts/deploy-flink.sh` | both jobs, from a savepoint | about 90 seconds of bars arrive late; none is wrong. If the saved state does not fit the new SQL the script says so and the next row applies |
 | `flink/sql/*.sql`, deployed with a plain rebuild | the changed job, **with empty state** | the minute in flight comes out wrong; the reconciliation labels it "restart" |
 | Nothing, but Flink restarts | both jobs, resumed from the last checkpoint | nothing |
+| `infra/kafka/create-topics.sh` (more partitions, more copies) | nothing by itself: it runs before the collectors on every `docker compose up`, and when a topic already matches it costs one describe (a few seconds) | adding partitions to a topic a running Flink job reads: stop the jobs first (`scripts/scale-kafka.sh` shows the order), or the job finds the new partitions up to 30 s late and their first trades count as late |
 | `api/` | the API | the page reconnects by itself |
 | `batch/` | Airflow | nothing, unless an hourly run is in progress (ten past the hour, about 15 s) |
 | `clickhouse/init/*.sql` | nothing: these files only run on an empty volume | apply the new statement by hand (below) |
@@ -104,6 +105,31 @@ B="cd /opt/rivus && /home/airflow/batch-venv/bin/python -m rivus_batch"
 docker compose exec -T airflow bash -c "$B all --hour 2026-11-23T17:00:00"
 docker compose exec -T airflow bash -c "$B rollup --day 2026-11-23"
 ```
+
+## Kafka brokers
+
+Three brokers, `kafka`, `kafka-2` and `kafka-3`; every partition has a copy on each, and a
+write is accepted once two have it. `kafka` is also the only controller (decision 32).
+
+```sh
+K="docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092"
+$K --describe --topic raw.coinbase.trades      # leader and in-sync copies of each partition
+$K --describe --under-replicated-partitions   # partitions missing a copy: empty when healthy
+docker compose exec -T kafka /opt/kafka/bin/kafka-metadata-quorum.sh \
+  --bootstrap-server localhost:9092 describe --status   # the controller
+```
+
+| Broker lost | What happens | What to do |
+|---|---|---|
+| `kafka-2` or `kafka-3` | the partitions it led get a new leader within seconds; 2 copies stay in sync, so writes carry on. Measured: no restart, no delivery error, no missed trade | start it again: it catches up by itself (7 s after a 2-minute stop). Then move leadership back: `kafka-leader-election.sh --election-type preferred --all-topic-partitions` |
+| two of the three | writes are refused (fewer than 2 copies in sync); collectors queue up to 200,000 messages, then reconnect in a loop | start one of them |
+| `kafka` | the controller is gone: nothing can change leaders. Partitions led by the other two carry on; those it led stop | start it again; the cure is a cluster with three controllers |
+
+**Memory.** Copying partitions onto a broker reads every topic through Linux's file cache.
+On Docker Desktop that cache counts against the Windows host until it is freed: after the
+first copy of 4.8 GB the Docker VM held 14.9 GB and Windows had 1.1 GB free.
+`docker run --rm --privileged alpine:3.20 sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'`
+gave 3 GB back. Each broker itself uses about 0.7 GB.
 
 ## Finding where data stops
 

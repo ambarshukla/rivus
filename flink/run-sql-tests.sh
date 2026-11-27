@@ -14,7 +14,10 @@ mkdir -p /tmp/t/in/trades && cp "$T"/fixtures/trades/*.jsonl /tmp/t/in/trades/
 
 for job in normalise process; do
   echo "running $job.sql"
-  if ! /opt/flink/bin/sql-client.sh -i "$T/tables_test.sql" -f "/opt/flink/sql/$job.sql" > "/tmp/t/$job.log" 2>&1 \
+  # The job's parallelism is a deployment setting; the local test cluster runs
+  # everything with one copy (tables_test.sql), so that line is left out.
+  grep -v "'parallelism.default'" "/opt/flink/sql/$job.sql" > "/tmp/t/$job.sql"
+  if ! /opt/flink/bin/sql-client.sh -i "$T/tables_test.sql" -f "/tmp/t/$job.sql" > "/tmp/t/$job.log" 2>&1 \
      || grep -q '\[ERROR\]' "/tmp/t/$job.log"; then
     grep -B3 -A15 'ERROR' "/tmp/t/$job.log" | head -60
     echo "FAIL: $job.sql did not run"

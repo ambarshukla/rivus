@@ -407,3 +407,44 @@ time: from 22 to 24 Nov 2026 trades and 1-minute bars stopped being stored for 3
 1-second bars carried on, and nothing fired. Measuring the age of the newest row checks what
 users actually read, whatever the cause; reader metrics would only cover one cause.
 
+## 32. Three brokers, three copies, one controller kept
+
+**Chosen.** Two more brokers join the running cluster as brokers only. Every partition is
+stored on all three (replication factor 3) with `min.insync.replicas=2`, and the producers
+already use `acks=all`: a write is acknowledged once two brokers have it, so losing any one
+broker loses nothing and stops nothing. The first node stays the only controller.
+
+**Lost.** Three combined broker-and-controller nodes, the usual shape of a new cluster; or
+staying on one broker.
+
+**Why.** The controller quorum of a running cluster cannot be grown without a migration of
+its own (moving to a dynamic quorum), and starting a new cluster would throw away the 7 days
+of raw trades the batch rebuilds from. Adding brokers and copying partitions onto them
+(`kafka-reassign-partitions`) happens while everything runs. The cost is honest: the first
+node is still a single point of failure for the cluster's metadata. While it is down, the
+partitions it leads have no leader and nothing can move leadership; partitions led by the
+other two carry on. A new cluster should start with three controllers.
+
+## 33. Partitions keyed by pair; only the stateless job runs in parallel
+
+**Chosen.** The raw trade and book topics, the normalised trade topics and the quotes topic
+have 3 partitions, and every message carries its pair as the Kafka key, so a pair always
+lands in the same partition and stays in order there. Collectors hash keys the way Java
+clients do (`murmur2_random`), so a pair is in the same partition whoever writes it.
+The normalise job runs 3 parallel copies, one per partition, spread over two task managers.
+The process job stays at 1.
+
+**Lost.** Process job at parallelism 3; more partitions; keys by venue.
+
+**Why.** Normalising is one message in, rows out, no state: it splits freely, and a pair's
+messages all pass through the same copy, in order. The process job is order-sensitive: the
+opening and closing price of a bar are the first and last trade to arrive, and "a jump in
+trade ids is a gap" assumes ids arrive in order. Its duplicate filter is keyed by trade id,
+so with several copies two trades of one pair would pass through different copies and could
+reach the bar out of order. Keying everything by pair instead would cap it at six keys, and
+the volume (a few hundred messages a second) does not need it.
+
+With two pairs per venue, two of each topic's three partitions are busy (BTC-USD hashes to
+partition 0, ETH-USD to 2) and partition 1 is empty. A partition count only spreads load up
+to the number of distinct keys. Three partitions keep one leader per broker and room for a
+third pair.

@@ -19,3 +19,9 @@ classify:
 
 # Kraken sends {"channel":"heartbeat"} every second when nothing else is sent.
 stale_after_seconds: 15
+
+# The Kafka key: which pair a message is about (decides its partition). Kraken
+# sends one pair per message; the first entry of "data" says which.
+key:
+  path: data.0.symbol
+  pairs: {BTC/USD: BTC-USD, ETH/USD: ETH-USD}
