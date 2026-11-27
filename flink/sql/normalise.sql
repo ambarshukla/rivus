@@ -3,6 +3,10 @@
 -- one message in, one or more rows out.
 
 SET 'pipeline.name' = 'rivus-normalise';
+-- Three parallel copies of every step, one per partition. The job keeps no
+-- state and every message is handled on its own, so it splits freely; a pair's
+-- messages all come from one partition and so stay in order through one copy.
+SET 'parallelism.default' = '3';
 
 CREATE TEMPORARY VIEW trades_coinbase (venue, pair, trade_id, price, qty, side, event_time, recv_time) AS
 SELECT

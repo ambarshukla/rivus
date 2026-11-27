@@ -371,3 +371,145 @@ test, started with empty state on purpose.
 
 **Not covered.** A job that restores but whose new SQL makes old state mean something else
 (for example a changed window size): Flink cannot detect that, and neither does the script.
+
+## A blind spot in the alerts, and 23 hours checked again (2026-11-27)
+
+**Found.** From 22 Nov 20:03 to 24 Nov 09:26 trades and 1-minute bars reached Kafka but were
+not stored in ClickHouse; every row of those 37 hours was stored at 09:26:08, when a restart
+started ClickHouse's readers again. Nothing was lost (Kafka keeps the topics for 7 days).
+1-second bars carried on the whole time, so `NoNewBars` never fired. The cause is not known:
+ClickHouse's error log has nothing at that time. A second, smaller case of a stuck position:
+on 26 Nov the Flink normalise job's saved Kafka offsets stopped moving for an hour while
+checkpoints completed and data was fresh; `ConsumerLagging` fired on a lag that was not real.
+
+**Built.** `TradesNotStored` and `MinuteBarsNotStored` (decision 31), a new gauge
+`rivus_last_bar_1m_age_seconds`, and a note in `ConsumerLagging` on what the Flink lag means.
+`promtool` tests replay the 22 Nov pattern: fresh 1-second bars, stale trades and 1-minute
+bars.
+
+**Predicted.** The tests: `TradesNotStored` pending at minute 9 and firing at minute 12;
+`MinuteBarsNotStored` firing at 14 with the bar 9.5 minutes old; `NoNewBars` silent. Live:
+the trade gauge a few seconds, the 1-minute gauge under 70 seconds.
+
+**Happened.** All alert tests pass. Live: `rivus_last_trade_age_seconds` 6 to 8 s,
+`rivus_last_bar_1m_age_seconds` 29 s, both rules loaded, nothing firing.
+
+**The stale hours checked again.** Hours 22 Nov 20:00 to 23 Nov 19:00 had been checked while
+their stream bars were missing (360 "unexplained" rows an hour). Re-running the batch for
+each of the 24 hours from the raw trades still in Kafka: 7,998 + 817 stream bars, every one
+matched, 4 rounding rows. The daily summaries for 22 and 23 Nov now show 0 differences.
+
+## Three brokers, keyed partitions, two task managers (2026-11-27)
+
+**Built.** Two more Kafka brokers next to the first (decision 32); every partition copied
+onto all three, `min.insync.replicas=2`. The raw trade and book topics, the normalised trade
+topics and the quotes topic now have 3 partitions keyed by pair (decision 33): the
+collectors read the pair out of each message (a `key` block in each venue file) and hash it
+the way Java clients do; Flink writes the pair as the key of every normalised trade and
+quote. The normalise job runs 3 copies over two task managers of 1.25 GB each, replacing one
+of 2 GB; the process job stays at 1. The batch export reads every partition of a topic.
+`create-topics.sh` now brings existing topics up to what it describes, and runs one Kafka
+command when nothing differs (it runs before the collectors on every start).
+`scripts/scale-kafka.sh` did the move on the running stack.
+
+**Predicted.** BTC-USD in partition 0 and ETH-USD in 2 of every keyed topic (worked out from
+Kafka's hash), partition 1 empty. Copying 4.8 GB onto two brokers in a few minutes. Both jobs
+back from their savepoints, no wrong bars, a second or two of missed trades when the
+collectors restart. Stopping `kafka-3`: its partitions get a new leader, nothing stops.
+
+**Happened.**
+
+- *The move.* Jobs stopped with savepoints at 12:36:40; 12 topics went from 1 to 3
+  partitions; 88 partitions (50 of them Kafka's own `__consumer_offsets`) were copied in
+  about two minutes. Both jobs were back by 12:42:02, from their savepoints
+  (`job_starts.resumed = true`), the normalise job at its new parallelism.
+- *Where the keys went.* Over 20 seconds: `raw.coinbase.trades` partition 0 +161, partition 1
+  +0, partition 2 +42, and `rivus.trades.coinbase` exactly the same, so the Python collectors
+  and Flink put each pair in the same partition. A message read from partition 2 of
+  `rivus.trades.kraken` had the key `ETH-USD`.
+- *Slots.* Each task manager runs 2 of the 4 busy slots.
+- *Losing a broker.* `kafka-3` stopped at 12:44:29 for two minutes. Partition 2 of
+  `raw.coinbase.trades`, which it led, was led by broker 1 within 15 seconds with copies on
+  1 and 2. During the stop: trades of all six pairs stored, 1-minute bars on time, no job
+  restart, no delivery error. Started again, it was back in sync 7 seconds later.
+
+**Two faults found by running it.**
+
+- `docker compose up` runs `kafka-init` again before the collectors every time. The first
+  version made three Kafka calls per topic, about 25 seconds a topic, which would have held
+  the collectors back for minutes on every start. It now describes everything once and acts
+  only on differences: a few seconds when nothing has changed.
+- Editing `create-topics.sh` while a run was reading it (it is mounted, and bash reads a
+  script as it goes) broke that run, and `docker compose up` refused to start what depends
+  on it. Rerunning was enough; the lesson is not to edit a mounted script mid-run.
+
+**Memory.** Inside the Docker VM, use went from 6.3 to 7.3 GB. The copy also filled the
+file cache, which Docker Desktop does not hand back to Windows by itself: Windows free memory
+fell to 1.1 GB until the cache was dropped (3.5 GB free after). See OPERATIONS, Kafka brokers.
+
+## A spare collector per venue (2026-11-27)
+
+**Built.** `collector-<venue>-b` for each venue (decision 34): its own connection, trades
+only (`FORWARD_KINDS=trades`), to the same topics, with a `collector` header (`a` or `b`) on
+every message. The trades-per-minute gauge now counts distinct trades. 45 collector tests
+(one new: a spare forwards only what it is told and still counts every frame in `seq`).
+
+**Predicted.** Restarting a venue's main collector while its spare runs leaves no gap. Every
+1-minute bar still counts each trade once.
+
+**Happened.** The spares started at 12:51:02; the main collectors were restarted at 12:51:22
+and again at 12:53:16. Gaps recorded after 12:42: none. For 12:53, each bar's trade count
+equals the number of distinct trade ids stored (coinbase BTC-USD 588 = 588, and so on for all
+six pairs). In the raw topic, 18 of 40 consecutive messages came from `b`.
+
+**False gaps from the move to three brokers.** From 12:37:23 to 12:41:19 the gap table has a
+few hundred rows, up to 692 "missing" trades each. They are not missing trades. The
+partitions were added while the old collectors, which sent no key, were still running; once
+they saw three partitions they spread each pair's messages over all three at random, the
+normalise job read the three in parallel, and trades reached the gap check out of order.
+`scripts/scale-kafka.sh` now restarts the collectors with keys before any partition is
+added. The hourly reconciliation of 12:00 is the check that nothing was lost, and it agrees:
+every 1-minute bar is in both the stream and the rebuild (120 = 120 per venue), and trade
+count, volume, high, low and average price match in every one. What differs is the opening
+or closing price of 11 bars between 12:37 and 12:39, 15 values in all: the first or last
+trade to *arrive* was not the first or last to happen, which is what reordering does. They
+are labelled "restart" because the jobs were down from 12:36:40, which is right about when
+and wrong about why.
+
+## A second consumer group: the raw archive (2026-11-27)
+
+**Built.** `archive/` (decision 35): a consumer group of its own that writes the raw trade
+topics to Parquet, committing each partition's position only after the file before it is in
+place, and a test service with 6 tests (batching, one hour per file, nothing committable
+before a file exists, partitions apart, a restart rebuilds the same file under the same
+name, pruning). Added to CI.
+
+**Predicted.** First start: everything Kafka holds, about 5 million messages in a few
+minutes; the archive then equal to Kafka's retained messages, each once. A reset of the
+group by an hour on one topic: that hour read again, the stream's own group unaffected.
+
+**Happened.**
+
+- *First start.* 10.6 million messages, more than predicted: Kafka deletes whole daily
+  segments, so it held 7.6 days, not 7. About 110,000 messages a second; caught up in under
+  three minutes, 731 files and 415 MB by then. The process uses 245 MB of memory.
+- *Complete and once.* 10,603,032 rows, 10,603,032 distinct (topic, partition, offset). For
+  Bitstamp, archived rows plus the group's lag (466,807 + 32) equal the messages Kafka holds
+  (466,839).
+- *Rewind.* `rivus-archive` reset to 12:05 on `raw.kraken.trades` only. It read that hour
+  again with its own lag while `rivus-normalise` stayed at its usual lag of a few dozen
+  messages. The Kraken archive then held 684,896 rows, 681,222 distinct: the hour twice, as
+  expected for a reset by hand.
+- *The move to three brokers, seen from here.* Partition 1 of each raw topic holds a few
+  messages (12, 34 and 381) although no pair hashes to it: the messages the old collectors,
+  without keys, scattered during the move.
+
+## A Kafka web page (2026-11-27)
+
+**Built.** `kafka-ui` in Compose under the `tools` profile, read-only (decision 36).
+
+**Happened.** Started with `docker compose --profile tools up -d kafka-ui`; its API reported
+the cluster online with 3 brokers and 88 partitions, read-only, and all 11 consumer groups
+with their lag. The two Flink groups show as `EMPTY`: Flink assigns partitions itself and
+only commits positions to the group. 390 MB of memory while running.
+

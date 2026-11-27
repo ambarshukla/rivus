@@ -13,7 +13,14 @@ log = logging.getLogger(__name__)
 
 
 class Sink(Protocol):
-    def send(self, topic: str, raw: bytes, headers: dict[str, str], timestamp_ms: int) -> None: ...
+    def send(
+        self,
+        topic: str,
+        raw: bytes,
+        headers: dict[str, str],
+        timestamp_ms: int,
+        key: str | None = None,
+    ) -> None: ...
 
     def close(self) -> None: ...
 
@@ -25,17 +32,21 @@ class KafkaSink:
     the client sends it. poll(0) hands back delivery results.
     """
 
-    def __init__(self, bootstrap: str, venue: str) -> None:
+    def __init__(self, bootstrap: str, venue: str, name: str = "") -> None:
         self._venue = venue
         self._producer = Producer(
             {
                 "bootstrap.servers": bootstrap,
-                "client.id": f"collector-{venue}",
+                "client.id": f"collector-{venue}" + (f"-{name}" if name else ""),
                 "enable.idempotence": True,  # no duplicates or reordering on retries
                 "acks": "all",
                 "linger.ms": 50,
                 "compression.type": "lz4",
                 "queue.buffering.max.messages": 200_000,
+                # The same key-to-partition rule as Java clients (Flink, Kafka's
+                # tools), so a pair lands in the same partition whoever writes it.
+                # librdkafka's own default hashes differently.
+                "partitioner": "murmur2_random",
             }
         )
 
@@ -44,9 +55,17 @@ class KafkaSink:
             metrics.DELIVERY_ERRORS.labels(self._venue).inc()
             log.error("kafka delivery failed: %s", err)
 
-    def send(self, topic: str, raw: bytes, headers: dict[str, str], timestamp_ms: int) -> None:
+    def send(
+        self,
+        topic: str,
+        raw: bytes,
+        headers: dict[str, str],
+        timestamp_ms: int,
+        key: str | None = None,
+    ) -> None:
         kwargs = {
             "value": raw,
+            "key": key.encode() if key is not None else None,
             "headers": [(k, v.encode()) for k, v in headers.items()],
             "timestamp": timestamp_ms,
             "on_delivery": self._delivered,

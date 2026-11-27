@@ -392,3 +392,116 @@ and the job restarts for ever. So the script does not predict whether state fits
 and looks. A savepoint is taken as the job stops, so its position in Kafka is also the
 committed one, and the fall-back continues from exactly there: the worst case equals the old
 behaviour. Tried both ways on the day (build log).
+
+## 31. Every stored table gets its own freshness alert
+
+**Chosen.** Besides `NoNewBars` (1-second bars), `TradesNotStored` and `MinuteBarsNotStored`
+check how old the newest stored trade and 1-minute bar are. The API measures both in
+ClickHouse, like the other health gauges.
+
+**Lost.** One end-to-end check on the 1-second bars, as before; or alerts on ClickHouse's own
+Kafka reader metrics.
+
+**Why.** Each table is filled by its own reader in ClickHouse, and readers can stop one at a
+time: from 22 to 24 Nov 2026 trades and 1-minute bars stopped being stored for 37 hours while
+1-second bars carried on, and nothing fired. Measuring the age of the newest row checks what
+users actually read, whatever the cause; reader metrics would only cover one cause.
+
+## 32. Three brokers, three copies, one controller kept
+
+**Chosen.** Two more brokers join the running cluster as brokers only. Every partition is
+stored on all three (replication factor 3) with `min.insync.replicas=2`, and the producers
+already use `acks=all`: a write is acknowledged once two brokers have it, so losing any one
+broker loses nothing and stops nothing. The first node stays the only controller.
+
+**Lost.** Three combined broker-and-controller nodes, the usual shape of a new cluster; or
+staying on one broker.
+
+**Why.** The controller quorum of a running cluster cannot be grown without a migration of
+its own (moving to a dynamic quorum), and starting a new cluster would throw away the 7 days
+of raw trades the batch rebuilds from. Adding brokers and copying partitions onto them
+(`kafka-reassign-partitions`) happens while everything runs. The cost is honest: the first
+node is still a single point of failure for the cluster's metadata. While it is down, the
+partitions it leads have no leader and nothing can move leadership; partitions led by the
+other two carry on. A new cluster should start with three controllers.
+
+## 33. Partitions keyed by pair; only the stateless job runs in parallel
+
+**Chosen.** The raw trade and book topics, the normalised trade topics and the quotes topic
+have 3 partitions, and every message carries its pair as the Kafka key, so a pair always
+lands in the same partition and stays in order there. Collectors hash keys the way Java
+clients do (`murmur2_random`), so a pair is in the same partition whoever writes it.
+The normalise job runs 3 parallel copies, one per partition, spread over two task managers.
+The process job stays at 1.
+
+**Lost.** Process job at parallelism 3; more partitions; keys by venue.
+
+**Why.** Normalising is one message in, rows out, no state: it splits freely, and a pair's
+messages all pass through the same copy, in order. The process job is order-sensitive: the
+opening and closing price of a bar are the first and last trade to arrive, and "a jump in
+trade ids is a gap" assumes ids arrive in order. Its duplicate filter is keyed by trade id,
+so with several copies two trades of one pair would pass through different copies and could
+reach the bar out of order. Keying everything by pair instead would cap it at six keys, and
+the volume (a few hundred messages a second) does not need it.
+
+With two pairs per venue, two of each topic's three partitions are busy (BTC-USD hashes to
+partition 0, ETH-USD to 2) and partition 1 is empty. A partition count only spreads load up
+to the number of distinct keys. Three partitions keep one leader per broker and room for a
+third pair.
+
+## 34. A spare collector per venue, trades only; the first copy wins
+
+**Chosen.** A second collector per venue (`collector-<venue>-b`) with its own connection,
+writing trades only to the same raw topics. Every trade then reaches Kafka twice; the
+process job keeps the first copy to arrive, ClickHouse keeps one row per trade id, and the
+batch keeps the first copy received. Each message says which collector sent it (header
+`collector`: `a` or `b`).
+
+**Lost.** One collector per venue, as before; a spare that forwards everything; picking one
+"live" collector and switching to the spare only when it fails.
+
+**Why.** A dropped connection or a restarted collector loses the trades sent while it is
+away, for good: the venues do not replay them. With two connections, a trade is lost only
+if both miss it. Writing both and removing duplicates by a natural key (the venue's trade
+id) needs no failover logic and no decision about which side is healthy; the duplicate
+filter already existed because Kraken replays its last trades on every connect. Book
+messages are not doubled: each is replaced by the next a moment later, and Bitstamp's are
+large.
+
+The gap check still compares trade ids in arrival order. With both copies complete that
+order is still the venue's order: each trade's first arrival is the earlier of two in-order
+streams, which is itself in order. Only when one collector misses trades *and* the other's
+copy of them arrives later than the next trade from the first does a gap appear that the
+other copy then fills; the reconciliation would show those trades as present.
+
+## 35. A second consumer group archives the raw trades, committing after each file
+
+**Chosen.** `archive`, a small Python service in its own consumer group (`rivus-archive`),
+reads every raw trade topic and writes Parquet files of up to 20,000 messages or 60 seconds,
+one folder per topic, day and hour, kept 30 days. Each file is named after its partition and
+first offset. Positions are committed by hand, only after the file holding everything before
+them has been written and renamed into place.
+
+**Lost.** Kafka Connect with an S3 or file sink; committing automatically every few seconds;
+relying on Kafka's 7 days of retention alone.
+
+**Why.** It shows what a consumer group is for: a new reader of the same topics with its own
+positions and lag, which costs the producers and the stream nothing and can be rewound on its
+own. Committing after the write means a crash re-reads from the start of the unwritten file
+and rebuilds it under the same name, so the archive holds each message once (at least once
+delivery, made exactly once by naming files after offsets). Automatic commits could move the
+position past messages still in memory and lose them on a crash. Kafka Connect does the same
+job in production, but is a JVM service of its own, too heavy for this laptop. The archive
+also outlives Kafka's retention: the hourly batch can only rebuild the last 7 days.
+
+## 36. A Kafka web page, read-only and off by default
+
+**Chosen.** Kafka UI (`kafbat/kafka-ui`) behind the Compose profile `tools`, read-only.
+
+**Lost.** Running it all the time; Redpanda Console or AKHQ, which do the same; only Kafka's
+command-line tools.
+
+**Why.** Kafka itself ships no web page, only command-line tools. A page makes partitions,
+leaders, copies and consumer-group lag visible at a glance, which helps when explaining the
+cluster. It takes about 400 MB, so it runs only when wanted, and read-only means nothing can
+be deleted or reset from it by a stray click.

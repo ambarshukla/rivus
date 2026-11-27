@@ -8,7 +8,7 @@ run `export MSYS_NO_PATHCONV=1` first.
 
 | Look at | Healthy looks like |
 |---|---|
-| `docker compose ps` | 15 containers up; Kafka, ClickHouse, Redis and the Flink JobManager "healthy" |
+| `docker compose ps` | 22 containers up; the three Kafka brokers, ClickHouse, Redis and the Flink JobManager "healthy" |
 | The page, <http://localhost:18080>, "Stream health" | every venue's newest trade a few seconds old; bar delay about 7 s |
 | Prometheus, <http://localhost:19090/alerts> | nothing firing (see the table below for the ones that fire for known reasons) |
 | Flink, <http://localhost:18081> | two jobs RUNNING: `rivus-normalise` and `rivus-process` |
@@ -50,10 +50,11 @@ bash scripts/deploy-flink.sh   # after changing anything in flink/: keeps the jo
 
 | You change | What restarts | What it costs |
 |---|---|---|
-| `collectors/` or a venue file | that venue's collector | the trades sent during the reconnect, a second or two; shown as a gap |
+| `collectors/` or a venue file | that venue's collectors | nothing if the spare (`-b`) stays up while the main one restarts: `docker compose up -d --no-deps collector-<venue>`, then the same for `collector-<venue>-b`. Restarting both at once loses a second or two of trades, shown as a gap |
 | `flink/sql/*.sql`, deployed with `scripts/deploy-flink.sh` | both jobs, from a savepoint | about 90 seconds of bars arrive late; none is wrong. If the saved state does not fit the new SQL the script says so and the next row applies |
 | `flink/sql/*.sql`, deployed with a plain rebuild | the changed job, **with empty state** | the minute in flight comes out wrong; the reconciliation labels it "restart" |
 | Nothing, but Flink restarts | both jobs, resumed from the last checkpoint | nothing |
+| `infra/kafka/create-topics.sh` (more partitions, more copies) | nothing by itself: it runs before the collectors on every `docker compose up`, and when a topic already matches it costs one describe (a few seconds) | adding partitions to a topic a running Flink job reads: stop the jobs first (`scripts/scale-kafka.sh` shows the order), or the job finds the new partitions up to 30 s late and their first trades count as late |
 | `api/` | the API | the page reconnects by itself |
 | `batch/` | Airflow | nothing, unless an hourly run is in progress (ten past the hour, about 15 s) |
 | `clickhouse/init/*.sql` | nothing: these files only run on an empty volume | apply the new statement by hand (below) |
@@ -81,17 +82,81 @@ nowhere (decision 25).
 | Alert | Means | First thing to do |
 |---|---|---|
 | `TargetDown` | a service does not answer Prometheus | `docker compose ps`, then that service's logs |
-| `CollectorDisconnected` | a collector has had no connection for 2 minutes | `docker compose logs --since 10m collector-<venue>`; it retries by itself, so check the network and the venue's status page |
+| `CollectorDisconnected` | a collector (main or spare: see the `instance` label) has had no connection for 2 minutes; the other one still covers the venue | `docker compose logs --since 10m collector-<venue>`; it retries by itself, so check the network and the venue's status page |
 | `VenueQuiet` | connected, but no trade for 15 minutes | usually the venue; compare with its own website |
 | `StreamJobMissing` | fewer than 2 Flink jobs | `docker compose logs --since 10m flink-submit`: it resubmits every 30 s and says why it cannot |
 | `StreamJobRestarting` | Flink restarted a job by itself | Flink UI, the job's Exceptions tab |
 | `CheckpointsStopped` | no completed checkpoint for 10 minutes | Flink UI, Checkpoints tab; a restart now would re-read more than usual |
 | `NoNewBars` | no new 1-second bar stored for 2 minutes | walk the pipeline (next section) |
-| `ConsumerLagging` | a consumer is more than 20,000 messages behind | which group? `rivus-*` is Flink, `clickhouse-*` is ClickHouse |
+| `TradesNotStored` | no new trade stored in ClickHouse for 3 minutes | if 1-second bars are fresh, ClickHouse's reader of the trade topics is stuck: `SELECT table, last_poll_time, last_commit_time, exceptions.text FROM system.kafka_consumers`. A restart of ClickHouse resumes it; nothing is lost while Kafka keeps the topic |
+| `MinuteBarsNotStored` | no new 1-minute bar stored for 5 minutes | the same check, for `bars_1m_queue` |
+| `ConsumerLagging` | a consumer is more than 20,000 messages behind | which group? `rivus-*` is Flink, `clickhouse-*` is ClickHouse. For Flink it is the position saved with each checkpoint: if bars are fresh and checkpoints complete, only the saved position is stuck, and a job restart clears it |
 | `HealthQueryFailing` | the API cannot query ClickHouse | `docker compose logs --since 10m api clickhouse` |
 | `TradesMissed` | a sequence gap in the last hour | expected after a dropped connection or a collector restart; clears after an hour |
 | `ReconciliationDifferences` | a bar differed from the batch rebuild in the last 24 hours | the page lists each with its reason. "restart" after a deploy is expected; "unexplained" is worth an hour of your time |
 | `ReconciliationStale` | no hour reconciled for 3 hours | Airflow, <http://localhost:18082>, DAG `reconcile_hourly` |
+
+**Re-checking past hours.** An hour checked while its stream bars were held up is recorded as
+"unexplained, bar missing". Once the bars are stored, check it again (raw trades are kept for
+7 days), then redo the day's summary:
+
+```sh
+B="cd /opt/rivus && /home/airflow/batch-venv/bin/python -m rivus_batch"
+docker compose exec -T airflow bash -c "$B all --hour 2026-11-23T17:00:00"
+docker compose exec -T airflow bash -c "$B rollup --day 2026-11-23"
+```
+
+## Kafka brokers
+
+Three brokers, `kafka`, `kafka-2` and `kafka-3`; every partition has a copy on each, and a
+write is accepted once two have it. `kafka` is also the only controller (decision 32).
+
+```sh
+K="docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092"
+$K --describe --topic raw.coinbase.trades      # leader and in-sync copies of each partition
+$K --describe --under-replicated-partitions   # partitions missing a copy: empty when healthy
+docker compose exec -T kafka /opt/kafka/bin/kafka-metadata-quorum.sh \
+  --bootstrap-server localhost:9092 describe --status   # the controller
+```
+
+**A web page.** `docker compose --profile tools up -d kafka-ui`, then <http://localhost:18090>:
+brokers, topics and their partitions, messages as they arrive, consumer groups and their lag.
+Read-only. About 400 MB; `docker compose stop kafka-ui` when done. The Flink groups show as
+"empty": Flink picks its partitions itself and only stores its positions in the group.
+
+| Broker lost | What happens | What to do |
+|---|---|---|
+| `kafka-2` or `kafka-3` | the partitions it led get a new leader within seconds; 2 copies stay in sync, so writes carry on. Measured: no restart, no delivery error, no missed trade | start it again: it catches up by itself (7 s after a 2-minute stop). Then move leadership back: `kafka-leader-election.sh --election-type preferred --all-topic-partitions` |
+| two of the three | writes are refused (fewer than 2 copies in sync); collectors queue up to 200,000 messages, then reconnect in a loop | start one of them |
+| `kafka` | the controller is gone: nothing can change leaders. Partitions led by the other two carry on; those it led stop | start it again; the cure is a cluster with three controllers |
+
+**Memory.** Copying partitions onto a broker reads every topic through Linux's file cache.
+On Docker Desktop that cache counts against the Windows host until it is freed: after the
+first copy of 4.8 GB the Docker VM held 14.9 GB and Windows had 1.1 GB free.
+`docker run --rm --privileged alpine:3.20 sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'`
+gave 3 GB back. Each broker itself uses about 0.7 GB.
+
+## The raw archive
+
+`archive` copies every raw trade message into Parquet files in the `archive-data` volume:
+`/archive/<topic>/date=<day>/hour=<hh>/p<partition>-<first offset>.parquet`, kept 30 days.
+It is a consumer group of its own (`rivus-archive`), so its lag shows next to the others.
+On its first start it reads everything Kafka still has (10.6 million messages, about two
+minutes), and `ConsumerLagging` may be pending meanwhile.
+
+```sh
+# rows and distinct messages, from inside the container
+docker compose exec -T archive python -c "import pyarrow.dataset as ds; print(ds.dataset('/archive', format='parquet', partitioning=None).count_rows())"
+
+# read one venue's last hour again, without touching anything else
+docker compose stop archive
+docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --group rivus-archive --reset-offsets --topic raw.kraken.trades --to-datetime 2026-11-27T12:05:00.000 --execute
+docker compose start archive
+```
+
+A reset by hand writes the replayed messages a second time, in new files. Partition and
+offset identify a message: count distinct `(topic, partition, offset)` when reading.
 
 ## Finding where data stops
 

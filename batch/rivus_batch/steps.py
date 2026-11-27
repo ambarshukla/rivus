@@ -39,37 +39,53 @@ def export_raw(hour: Hour, bootstrap: str | None = None) -> dict[str, int]:
     counts = {}
     try:
         for venue in VENUES:
-            partition = TopicPartition(f"raw.{venue}.trades", 0, start_ms)
-            # "Which offset holds the first message at or after this time?"
-            first = consumer.offsets_for_times([partition], timeout=30)[0]
-            _, high = consumer.get_watermark_offsets(TopicPartition(partition.topic, 0), timeout=30)
+            topic = f"raw.{venue}.trades"
+            # A topic can have several partitions (one per pair, more or less);
+            # read the hour from each in turn. Order across partitions does not
+            # matter here: the models sort trades by their own time and id.
+            meta = consumer.list_topics(topic, timeout=30).topics[topic]
+            if meta.error is not None:
+                raise RuntimeError(f"{topic}: {meta.error}")
             written = 0
             with open(hour.raw_dir / f"{venue}.jsonl", "w", encoding="utf-8", newline="\n") as out:
-                if first.offset >= 0:
-                    consumer.assign([first])
-                    position = first.offset
-                    while position < high:
-                        message = consumer.poll(10)
-                        if message is None:
-                            raise RuntimeError(f"timed out reading {partition.topic} at {position}")
-                        if message.error():
-                            raise RuntimeError(str(message.error()))
-                        position = message.offset() + 1
-                        recv_ms = message.timestamp()[1]
-                        if recv_ms > end_ms:
-                            break
-                        try:
-                            parsed = json.loads(message.value())
-                        except ValueError:
-                            continue  # the stream ignores unparseable messages too
-                        out.write(json.dumps({"recv_ms": recv_ms, "msg": parsed}, separators=(",", ":")))
-                        out.write("\n")
-                        written += 1
+                for number in sorted(meta.partitions):
+                    written += _export_partition(consumer, TopicPartition(topic, number, start_ms), end_ms, out)
             counts[venue] = written
     finally:
         consumer.close()
     print(f"raw messages exported for {hour.sql}: {counts}")
     return counts
+
+
+def _export_partition(consumer, partition, end_ms: int, out) -> int:
+    """Write one partition's messages from partition.offset's time up to end_ms."""
+    from confluent_kafka import TopicPartition
+
+    # "Which offset holds the first message at or after this time?"
+    first = consumer.offsets_for_times([partition], timeout=30)[0]
+    _, high = consumer.get_watermark_offsets(TopicPartition(partition.topic, partition.partition), timeout=30)
+    if first.offset < 0:  # nothing at or after that time
+        return 0
+    consumer.assign([first])
+    position, written = first.offset, 0
+    while position < high:
+        message = consumer.poll(10)
+        if message is None:
+            raise RuntimeError(f"timed out reading {partition.topic}[{partition.partition}] at {position}")
+        if message.error():
+            raise RuntimeError(str(message.error()))
+        position = message.offset() + 1
+        recv_ms = message.timestamp()[1]
+        if recv_ms > end_ms:
+            break
+        try:
+            parsed = json.loads(message.value())
+        except ValueError:
+            continue  # the stream ignores unparseable messages too
+        out.write(json.dumps({"recv_ms": recv_ms, "msg": parsed}, separators=(",", ":")))
+        out.write("\n")
+        written += 1
+    return written
 
 
 STREAM_EXPORTS = {

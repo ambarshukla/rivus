@@ -29,6 +29,10 @@ tests:
         values: '0+2x30'           # two checkpoints a minute
       - series: 'rivus_last_bar_age_seconds{venue="kraken"}'
         values: '4x30'
+      - series: 'rivus_last_trade_age_seconds{venue="kraken"}'
+        values: '1x30'
+      - series: 'rivus_last_bar_1m_age_seconds{venue="kraken"}'
+        values: '30x30'
       - series: 'kafka_consumergroup_lag{consumergroup="rivus-process", topic="rivus.trades.kraken"}'
         values: '300x30'
       - series: 'rivus_stats_up'
@@ -47,11 +51,47 @@ tests:
       - {eval_time: 30m, alertname: StreamJobRestarting}
       - {eval_time: 30m, alertname: CheckpointsStopped}
       - {eval_time: 30m, alertname: NoNewBars}
+      - {eval_time: 30m, alertname: TradesNotStored}
+      - {eval_time: 30m, alertname: MinuteBarsNotStored}
       - {eval_time: 30m, alertname: ConsumerLagging}
       - {eval_time: 30m, alertname: HealthQueryFailing}
       - {eval_time: 30m, alertname: TradesMissed}
       - {eval_time: 30m, alertname: ReconciliationDifferences}
       - {eval_time: 30m, alertname: ReconciliationStale}
+
+  # ------------------------------------------------------------------ store
+  - name: trades and 1-minute bars stop being stored while 1-second bars carry on
+    interval: 1m
+    input_series:
+      # What happened on 22 Nov 2026: 1-second bars stayed fresh the whole time.
+      - series: 'rivus_last_bar_age_seconds{venue="kraken"}'
+        values: '4x30'
+      - series: 'rivus_last_trade_age_seconds{venue="kraken"}'
+        values: '1x5 60+60x25'
+      - series: 'rivus_last_trade_age_seconds{venue="coinbase"}'
+        values: '1x5 60+60x25'
+      - series: 'rivus_last_bar_1m_age_seconds{venue="kraken"}'
+        values: '30x5 90+60x25'
+    alert_rule_test:
+      - {eval_time: 20m, alertname: NoNewBars}
+      - eval_time: 8m              # 3 minutes old: not yet over the limit
+        alertname: TradesNotStored
+      - eval_time: 12m
+        alertname: TradesNotStored
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No venue has had a new trade stored for 7m 0s"
+              description: "If 1-second bars are still fresh, the ClickHouse reader of the trade topics is stuck: system.kafka_consumers."
+      - eval_time: 10m
+        alertname: MinuteBarsNotStored
+      - eval_time: 14m
+        alertname: MinuteBarsNotStored
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: "No venue has had a new 1-minute bar stored for 9m 30s"
+              description: "If 1-second bars are still fresh, the ClickHouse reader of rivus.bars_1m is stuck: system.kafka_consumers."
 
   # ---------------------------------------------------------------- collect
   - name: a collector that loses its venue, then goes quiet
@@ -162,7 +202,9 @@ tests:
         alertname: ConsumerLagging
         exp_alerts:
           - exp_labels: {severity: warning, consumergroup: rivus-process}
-            exp_annotations: {summary: "rivus-process is 30000 messages behind"}
+            exp_annotations:
+              summary: "rivus-process is 30000 messages behind"
+              description: "For the Flink groups (rivus-*) this is the position saved at each checkpoint, not the job's real one: if bars are fresh, it is the saved position that is stuck."
       - eval_time: 9m
         alertname: HealthQueryFailing
         exp_alerts:

@@ -2,6 +2,12 @@
 -- trades, sequence gaps and the cross-venue price check.
 
 SET 'pipeline.name' = 'rivus-process';
+-- One copy, on purpose. Opening and closing prices, and "a jump in trade ids is
+-- a gap", depend on the order trades arrive in. The step that drops duplicates
+-- is keyed by trade id; with several copies, two trades of one pair would pass
+-- through different copies and could reach the bars out of order. One copy
+-- keeps the order of each partition. docs/DECISIONS.md, 33.
+SET 'parallelism.default' = '1';
 
 -- Keep the first copy of each trade. Duplicates are normal: Kraken replays its
 -- last 50 trades on every connect, and the normalise job can write a trade

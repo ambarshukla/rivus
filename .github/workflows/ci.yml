@@ -25,6 +25,9 @@ jobs:
           - name: latest-price writer (ruff, pytest)
             build: latest-test
             run: latest-test
+          - name: raw archive (ruff, pytest)
+            build: archive-test
+            run: archive-test
           - name: api (dotnet build, dotnet test)
             build: api-test
             run: api-test

@@ -27,13 +27,15 @@ comparison.
 
 | Component | Does | State it keeps |
 |---|---|---|
-| `collector-<venue>` | one WebSocket per venue; copies every frame to Kafka unchanged | none |
-| Kafka | holds raw and derived topics | topics (retention below) |
-| Flink `rivus-normalise` | maps venue formats to one trade and one quote schema | Kafka positions |
-| Flink `rivus-process` | removes duplicates; bars, late trades, gaps, venue check | open windows, trade ids seen (1 h), last id per pair |
+| `collector-<venue>` | one WebSocket per venue; copies every frame to Kafka unchanged, keyed by pair | none |
+| `collector-<venue>-b` | a spare connection per venue; copies trades only, to the same topics | none |
+| Kafka (`kafka`, `kafka-2`, `kafka-3`) | three brokers holding raw and derived topics, each partition on all three; `kafka` is also the only controller | topics (retention below) |
+| Flink `rivus-normalise` | maps venue formats to one trade and one quote schema; 3 parallel copies, one per partition | Kafka positions |
+| Flink `rivus-process` | removes duplicates; bars, late trades, gaps, venue check; 1 copy, because it depends on arrival order | open windows, trade ids seen (1 h), last id per pair |
 | `flink-submit` | resubmits a missing job, from its last checkpoint if the SQL is unchanged | job ids and SQL hashes |
 | ClickHouse | history; pulls from Kafka itself | tables (TTL below) |
 | `latest` | newest trade and quote per venue and pair into Redis | none (Redis is rebuilt in a second) |
+| `archive` | its own consumer group: raw trades into Parquet files, one folder per topic, day and hour; 30 days | its positions, committed after each file |
 | `api` | REST, SignalR, the page; measures stream health for Prometheus | none |
 | Airflow | runs the hourly and daily reconciliation | run history; one folder per hour |
 | Prometheus, Grafana | metrics, alert rules and the dashboard | 15 days of metrics |
@@ -50,7 +52,11 @@ comparison.
 | `rivus.bars_1s`, `rivus.bars_1m` | process | 7 days | bars |
 | `rivus.late_trades`, `rivus.gaps`, `rivus.venue_checks` | process | 7 days | the stream's checks |
 
-Every topic has one partition. Raw messages carry four headers: `venue`, `conn` (connection
+Raw trade and book topics, `rivus.trades.<venue>` and `rivus.quotes` have 3 partitions and
+are keyed by pair, so each pair stays in order in its own partition (BTC-USD in partition 0,
+ETH-USD in 2; partition 1 is empty until a third pair is added). The rest have one
+partition. Every partition is stored on all three brokers, and a write is acknowledged once
+two have it. Raw messages carry four headers: `venue`, `conn` (connection
 id), `seq` (position within the connection) and `recv_ns`; the record timestamp is the time
 of receipt.
 
@@ -114,4 +120,5 @@ must not see a duplicate before the background merge use `FINAL`.
 | 18082 | Airflow |
 | 18123 | ClickHouse HTTP |
 | 16379 | Redis |
-| 19092 | Kafka |
+| 19092, 19093, 19094 | Kafka brokers `kafka`, `kafka-2`, `kafka-3` |
+| 18090 | Kafka UI, only when started with the `tools` profile |

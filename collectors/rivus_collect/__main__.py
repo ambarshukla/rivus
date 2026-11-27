@@ -12,16 +12,23 @@ import sys
 from prometheus_client import start_http_server
 
 from .collector import Collector
-from .config import load_config
+from .config import KINDS, load_config
 from .sink import KafkaSink
 
 
 async def main(config_path: str) -> None:
     config = load_config(config_path)
-    sink = KafkaSink(os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092"), config.venue)
+    # COLLECTOR_NAME tells two collectors of one venue apart (a, b);
+    # FORWARD_KINDS limits what one sends to Kafka (default: everything).
+    name = os.environ.get("COLLECTOR_NAME", "")
+    forward = frozenset(os.environ.get("FORWARD_KINDS", " ".join(KINDS)).replace(",", " ").split())
+    unknown = forward - set(KINDS)
+    if unknown:
+        raise SystemExit(f"FORWARD_KINDS: unknown kind(s) {sorted(unknown)}; use {KINDS}")
+    sink = KafkaSink(os.environ.get("KAFKA_BOOTSTRAP", "kafka:9092"), config.venue, name)
     start_http_server(int(os.environ.get("METRICS_PORT", "8000")))
 
-    task = asyncio.create_task(Collector(config, sink).run())
+    task = asyncio.create_task(Collector(config, sink, forward=forward, name=name).run())
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         with contextlib.suppress(NotImplementedError):  # not available on Windows

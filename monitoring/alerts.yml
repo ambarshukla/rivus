@@ -64,12 +64,32 @@ groups:
           summary: "No venue has had a new 1-second bar stored for {{ $value | humanizeDuration }}"
           description: "Trades may still be arriving: look at consumer lag to see where they stop."
 
+      # 1-second bars are not enough on their own: from 22 to 24 Nov 2026 they kept
+      # arriving while trades and 1-minute bars reached Kafka but not ClickHouse,
+      # for 37 hours, and nothing fired. Each stored table gets its own check.
+      - alert: TradesNotStored
+        expr: min(rivus_last_trade_age_seconds) > 180
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: "No venue has had a new trade stored for {{ $value | humanizeDuration }}"
+          description: "If 1-second bars are still fresh, the ClickHouse reader of the trade topics is stuck: system.kafka_consumers."
+
+      - alert: MinuteBarsNotStored
+        expr: min(rivus_last_bar_1m_age_seconds) > 300
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: "No venue has had a new 1-minute bar stored for {{ $value | humanizeDuration }}"
+          description: "If 1-second bars are still fresh, the ClickHouse reader of rivus.bars_1m is stuck: system.kafka_consumers."
+
       - alert: ConsumerLagging
         expr: sum by (consumergroup) (kafka_consumergroup_lag) > 20000
         for: 5m
         labels: {severity: warning}
         annotations:
           summary: "{{ $labels.consumergroup }} is {{ $value | printf \"%.0f\" }} messages behind"
+          description: "For the Flink groups (rivus-*) this is the position saved at each checkpoint, not the job's real one: if bars are fresh, it is the saved position that is stuck."
 
       - alert: HealthQueryFailing
         expr: rivus_stats_up == 0

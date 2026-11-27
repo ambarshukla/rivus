@@ -21,3 +21,12 @@ reconnect_on: ["bts:request_reconnect"]
 
 # The order book channels send several messages a second.
 stale_after_seconds: 30
+
+# The Kafka key: which pair a message is about (decides its partition).
+key:
+  path: channel
+  pairs:
+    live_trades_btcusd: BTC-USD
+    live_trades_ethusd: ETH-USD
+    order_book_btcusd: BTC-USD
+    order_book_ethusd: ETH-USD

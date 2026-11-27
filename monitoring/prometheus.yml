@@ -10,15 +10,20 @@ rule_files:
 scrape_configs:
   - job_name: collectors
     static_configs:
-      - targets: ["collector-coinbase:8000", "collector-kraken:8000", "collector-bitstamp:8000"]
+      - targets: ["collector-coinbase:8000", "collector-kraken:8000", "collector-bitstamp:8000",
+                  "collector-coinbase-b:8000", "collector-kraken-b:8000", "collector-bitstamp-b:8000"]
 
   - job_name: latest
     static_configs:
       - targets: ["latest:8000"]
 
+  - job_name: archive
+    static_configs:
+      - targets: ["archive:8000"]
+
   - job_name: flink
     static_configs:
-      - targets: ["flink-jobmanager:9249", "flink-taskmanager:9249"]
+      - targets: ["flink-jobmanager:9249", "flink-taskmanager:9249", "flink-taskmanager-2:9249"]
 
   # Stream health (gaps, late trades, bar delay, reconciliation) measured in
   # ClickHouse by the API service, plus the API's own request metrics.

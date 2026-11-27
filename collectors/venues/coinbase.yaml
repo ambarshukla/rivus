@@ -19,3 +19,7 @@ classify:
 # Reconnect when nothing at all has arrived for this long. The heartbeat
 # channel sends one message per product per second, so silence means trouble.
 stale_after_seconds: 15
+
+# The Kafka key: which pair a message is about (decides its partition).
+key:
+  path: product_id
