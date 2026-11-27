@@ -8,7 +8,7 @@ run `export MSYS_NO_PATHCONV=1` first.
 
 | Look at | Healthy looks like |
 |---|---|
-| `docker compose ps` | 21 containers up; the three Kafka brokers, ClickHouse, Redis and the Flink JobManager "healthy" |
+| `docker compose ps` | 22 containers up; the three Kafka brokers, ClickHouse, Redis and the Flink JobManager "healthy" |
 | The page, <http://localhost:18080>, "Stream health" | every venue's newest trade a few seconds old; bar delay about 7 s |
 | Prometheus, <http://localhost:19090/alerts> | nothing firing (see the table below for the ones that fire for known reasons) |
 | Flink, <http://localhost:18081> | two jobs RUNNING: `rivus-normalise` and `rivus-process` |
@@ -130,6 +130,28 @@ On Docker Desktop that cache counts against the Windows host until it is freed: 
 first copy of 4.8 GB the Docker VM held 14.9 GB and Windows had 1.1 GB free.
 `docker run --rm --privileged alpine:3.20 sh -c 'sync; echo 1 > /proc/sys/vm/drop_caches'`
 gave 3 GB back. Each broker itself uses about 0.7 GB.
+
+## The raw archive
+
+`archive` copies every raw trade message into Parquet files in the `archive-data` volume:
+`/archive/<topic>/date=<day>/hour=<hh>/p<partition>-<first offset>.parquet`, kept 30 days.
+It is a consumer group of its own (`rivus-archive`), so its lag shows next to the others.
+On its first start it reads everything Kafka still has (10.6 million messages, about two
+minutes), and `ConsumerLagging` may be pending meanwhile.
+
+```sh
+# rows and distinct messages, from inside the container
+docker compose exec -T archive python -c "import pyarrow.dataset as ds; print(ds.dataset('/archive', format='parquet', partitioning=None).count_rows())"
+
+# read one venue's last hour again, without touching anything else
+docker compose stop archive
+docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --group rivus-archive --reset-offsets --topic raw.kraken.trades --to-datetime 2026-11-27T12:05:00.000 --execute
+docker compose start archive
+```
+
+A reset by hand writes the replayed messages a second time, in new files. Partition and
+offset identify a message: count distinct `(topic, partition, offset)` when reading.
 
 ## Finding where data stops
 

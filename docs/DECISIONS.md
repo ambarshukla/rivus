@@ -473,3 +473,23 @@ order is still the venue's order: each trade's first arrival is the earlier of t
 streams, which is itself in order. Only when one collector misses trades *and* the other's
 copy of them arrives later than the next trade from the first does a gap appear that the
 other copy then fills; the reconciliation would show those trades as present.
+
+## 35. A second consumer group archives the raw trades, committing after each file
+
+**Chosen.** `archive`, a small Python service in its own consumer group (`rivus-archive`),
+reads every raw trade topic and writes Parquet files of up to 20,000 messages or 60 seconds,
+one folder per topic, day and hour, kept 30 days. Each file is named after its partition and
+first offset. Positions are committed by hand, only after the file holding everything before
+them has been written and renamed into place.
+
+**Lost.** Kafka Connect with an S3 or file sink; committing automatically every few seconds;
+relying on Kafka's 7 days of retention alone.
+
+**Why.** It shows what a consumer group is for: a new reader of the same topics with its own
+positions and lag, which costs the producers and the stream nothing and can be rewound on its
+own. Committing after the write means a crash re-reads from the start of the unwritten file
+and rebuilds it under the same name, so the archive holds each message once (at least once
+delivery, made exactly once by naming files after offsets). Automatic commits could move the
+position past messages still in memory and lose them on a crash. Kafka Connect does the same
+job in production, but is a JVM service of its own, too heavy for this laptop. The archive
+also outlives Kafka's retention: the hourly batch can only rebuild the last 7 days.

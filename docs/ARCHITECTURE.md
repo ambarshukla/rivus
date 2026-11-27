@@ -35,6 +35,7 @@ comparison.
 | `flink-submit` | resubmits a missing job, from its last checkpoint if the SQL is unchanged | job ids and SQL hashes |
 | ClickHouse | history; pulls from Kafka itself | tables (TTL below) |
 | `latest` | newest trade and quote per venue and pair into Redis | none (Redis is rebuilt in a second) |
+| `archive` | its own consumer group: raw trades into Parquet files, one folder per topic, day and hour; 30 days | its positions, committed after each file |
 | `api` | REST, SignalR, the page; measures stream health for Prometheus | none |
 | Airflow | runs the hourly and daily reconciliation | run history; one folder per hour |
 | Prometheus, Grafana | metrics, alert rules and the dashboard | 15 days of metrics |

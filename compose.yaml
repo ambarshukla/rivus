@@ -284,6 +284,26 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
+  # An independent reader of the raw trade topics: its own consumer group
+  # (rivus-archive), its own positions and lag. It writes Parquet files and
+  # commits a position only once the messages before it are in a file.
+  archive:
+    build:
+      context: ./archive
+      target: runtime
+    image: rivus-archive
+    restart: unless-stopped
+    environment:
+      KAFKA_BOOTSTRAP: *bootstrap
+      ARCHIVE_DIR: /archive
+      ARCHIVE_KEEP_DAYS: "30"
+      METRICS_PORT: "8000"
+    volumes:
+      - archive-data:/archive
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
   # --------------------------------------------------------------------- show
   # The only C# in the project: REST API, SignalR live feed and the web page.
   api:
@@ -401,6 +421,13 @@ services:
       target: test
     image: rivus-latest-test
 
+  archive-test:
+    profiles: ["test"]
+    build:
+      context: ./archive
+      target: test
+    image: rivus-archive-test
+
   flink-sql-test:
     profiles: ["test"]
     image: rivus-flink
@@ -433,3 +460,4 @@ volumes:
   grafana-data:
   airflow-data:
   batch-data:
+  archive-data:

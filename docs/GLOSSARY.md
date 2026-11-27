@@ -27,6 +27,14 @@ Kafka topic. A job restarted from a checkpoint carries on as if it had never sto
 **Collector.** A program that holds a connection to a venue and copies what arrives into
 Kafka.
 
+**Commit (offset).** A consumer group telling Kafka "everything before this offset is done".
+After a restart the group starts from its last commit, so committing too early can lose
+messages and committing late repeats some.
+
+**Consumer group.** The readers that share a name (`group.id`). Kafka gives each partition to
+one member of the group and remembers the group's position in each; different groups read
+the same topics independently, each at its own pace.
+
 **Control message.** Anything from a venue that is not a trade or a book update: heartbeats,
 replies to subscriptions, status notices.
 
@@ -77,12 +85,18 @@ matched it. A trade's "side" here is always the taker's.
 **Materialized view (ClickHouse).** A trigger: every batch inserted into one table is
 transformed and inserted into another.
 
+**Offset.** A message's position in its partition: 0, 1, 2... Topic, partition and offset
+together identify a message.
+
 **Order book.** The list of all outstanding buy and sell orders for a pair, by price.
 
 **Pair.** Two currencies traded against each other, such as BTC-USD.
 
 **Parallelism (Flink).** How many copies of each step of a job run side by side, each on its
 own share of the data. Each copy needs a *slot* on a task manager.
+
+**Parquet.** A file format that stores a table by column, compressed; read directly by
+DuckDB, Spark, pandas and most query engines.
 
 **Part.** In ClickHouse, the files written by one insert into a table. Background **merges**
 combine small parts into larger ones, rewriting their rows; many small inserts therefore cost

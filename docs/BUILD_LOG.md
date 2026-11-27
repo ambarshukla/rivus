@@ -470,3 +470,31 @@ normalise job read the three in parallel, and trades reached the gap check out o
 `scripts/scale-kafka.sh` now restarts the collectors with keys before any partition is
 added. The hourly reconciliation of 12:00 is the check that nothing was lost.
 
+## A second consumer group: the raw archive (2026-11-27)
+
+**Built.** `archive/` (decision 35): a consumer group of its own that writes the raw trade
+topics to Parquet, committing each partition's position only after the file before it is in
+place, and a test service with 6 tests (batching, one hour per file, nothing committable
+before a file exists, partitions apart, a restart rebuilds the same file under the same
+name, pruning). Added to CI.
+
+**Predicted.** First start: everything Kafka holds, about 5 million messages in a few
+minutes; the archive then equal to Kafka's retained messages, each once. A reset of the
+group by an hour on one topic: that hour read again, the stream's own group unaffected.
+
+**Happened.**
+
+- *First start.* 10.6 million messages, more than predicted: Kafka deletes whole daily
+  segments, so it held 7.6 days, not 7. About 110,000 messages a second; caught up in under
+  three minutes, 731 files and 415 MB by then. The process uses 245 MB of memory.
+- *Complete and once.* 10,603,032 rows, 10,603,032 distinct (topic, partition, offset). For
+  Bitstamp, archived rows plus the group's lag (466,807 + 32) equal the messages Kafka holds
+  (466,839).
+- *Rewind.* `rivus-archive` reset to 12:05 on `raw.kraken.trades` only. It read that hour
+  again with its own lag while `rivus-normalise` stayed at its usual lag of a few dozen
+  messages. The Kraken archive then held 684,896 rows, 681,222 distinct: the hour twice, as
+  expected for a reset by hand.
+- *The move to three brokers, seen from here.* Partition 1 of each raw topic holds a few
+  messages (12, 34 and 381) although no pair hashes to it: the messages the old collectors,
+  without keys, scattered during the move.
+
